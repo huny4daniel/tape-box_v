@@ -11,7 +11,7 @@
   --accent: #e8b25a;          /* 소장품 라벨 같은 따뜻한 금빛 */
   --accent-ink: #1a1206;
   --accent-soft: rgba(232, 178, 90, .14);
-  --love: #ef6b6b;
+  --love: #d9493a;            /* 빛바랜 빨간 잉크 (좋아요 하트) */
   --tint: 40 30% 30%;         /* 화면 위쪽 색 (앨범아트에서 뽑아 바꿈) */
   --radius: 10px;
   --side-w: 280px;
@@ -520,11 +520,16 @@ img { display: block; }
   #playerbar:empty { display: none; }
   .pb-now { flex: 1; gap: 10px; }
   .pb-now .art { width: 42px; --s: 42px; }
-  .pb-now b { font-size: 14px; }
+  .pb-now b { font-size: 14px; text-overflow: clip; }
+  .pb-now b a { display: inline-block; }
+  .pb-now b.mq-run { -webkit-mask-image: linear-gradient(90deg, transparent, #000 6px, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(90deg, transparent, #000 6px, #000 calc(100% - 12px), transparent); }
+  .pb-now b.mq-run a { animation: pb-mq var(--mq-t, 8s) linear infinite alternate; }
+  .pb-now .fav { display: none; }
   .pb-center, .pb-right { display: none; }
-  .pb-mini { display: flex; align-items: center; }
-  .pb-mini .icon-btn { width: 42px; height: 42px; color: var(--text); }
-  .pb-mini .icon-btn .ic { width: 24px; height: 24px; }
+  .pb-mini { display: flex; align-items: center; flex: none; }
+  .pb-mini .icon-btn { width: 38px; height: 42px; color: var(--text); }
+  .pb-mini .icon-btn .ic { width: 20px; height: 20px; }
+  .pb-mini .pb-mini-play .ic { width: 26px; height: 26px; }
   .pb-mini-prog { position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; background: rgba(255,255,255,.2); border-radius: 1px; overflow: hidden; }
   .pb-mini-prog i { display: block; height: 100%; background: var(--text); }
   #toast { bottom: calc(var(--tab-h) + 80px); }
@@ -565,6 +570,8 @@ img { display: block; }
 @media (min-width: 821px) {
   .pb-mini, .pb-mini-prog { display: none !important; }
 }
+@keyframes pb-mq { 0%, 20% { transform: translateX(0); } 80%, 100% { transform: translateX(var(--mq-d, 0)); } }
+@media (prefers-reduced-motion: reduce) { .pb-now b.mq-run a { animation: none; } }
 
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border: 3px solid transparent; background-clip: padding-box; border-radius: 6px; }

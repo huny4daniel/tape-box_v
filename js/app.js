@@ -736,13 +736,28 @@
         <button class="icon-btn" data-act="open-full" title="재생 화면"><i class="ic ic-expand"></i></button>
         ${P.native ? "" : `<i class="ic ic-volume dim" style="margin-left:6px"></i><div class="range pb-vol" data-range="vol"><div class="track"><div class="fill"></div></div><div class="knob"></div></div>`}
       </div>
-      <div class="pb-mini"><button class="icon-btn" data-act="toggle"><i class="ic ${playIc}"></i></button></div>
+      <div class="pb-mini">
+        <button class="icon-btn" data-act="prev" title="이전"><i class="ic ic-prev"></i></button>
+        <button class="icon-btn pb-mini-play" data-act="toggle" title="재생/일시정지"><i class="ic ${playIc}"></i></button>
+        <button class="icon-btn" data-act="next" title="다음"><i class="ic ic-next"></i></button>
+        <button class="icon-btn" data-act="mini-queue" title="재생목록"><i class="ic ic-queue"></i></button>
+      </div>
       <div class="pb-mini-prog"><i></i></div>`;
+    if (isMobile()) marquee($(".pb-now b", bar));
     bindRange($('[data-range="seek"]', bar), () => (P.dur ? P.pos / P.dur : 0), (f) => P.seek(f * P.dur), (f) => ($('[data-time="pos"]', bar).textContent = U.fmtDur(f * P.dur)));
     const vol = $('[data-range="vol"]', bar);
     if (vol) bindRange(vol, () => P.volume, (f) => (P.volume = f), (f) => (P.volume = f));
     updateTime();
     if (isMobile()) U.tintFrom(API.artUrl(t.albumKey, 64), t.albumKey + t.album).then((c) => { const [h, s] = c.split(" "); bar.style.setProperty("--mini", `${h} ${s} 20%`); });
+  }
+  // 칸보다 긴 제목은 천천히 흘려 보여 준다 (양 끝에서 잠깐 멈췄다가 되돌아온다)
+  function marquee(box) {
+    const inner = box && box.firstElementChild; if (!inner) return;
+    const over = inner.scrollWidth - box.clientWidth;
+    box.classList.toggle("mq-run", over > 2);
+    if (over <= 2) return;
+    box.style.setProperty("--mq-d", -(over + 8) + "px");
+    box.style.setProperty("--mq-t", Math.max(4, (over + 8) / 25 / 0.6).toFixed(1) + "s"); // 초당 약 25px
   }
   function updateTime() {
     const f = P.dur ? Math.min(1, P.pos / P.dur) : 0;
@@ -751,7 +766,7 @@
     $$('[data-time="pos"]').forEach((e) => { if (!e.closest(".drag-host")) e.textContent = U.fmtDur(P.pos); });
     $$('[data-time="dur"]').forEach((e) => (e.textContent = U.fmtDur(P.dur)));
     const mp = $(".pb-mini-prog i"); if (mp) mp.style.width = f * 100 + "%";
-    const bt = !fp.hidden && $(".tape.big", fp); if (bt) bt.style.setProperty("--p", f.toFixed(4)); // 릴에 감긴 테이프가 옮겨 간다
+    if (!fp.hidden) $$(".tape.big, .np-side-tape .tape", fp).forEach((bt) => bt.style.setProperty("--p", f.toFixed(4))); // 릴에 감긴 테이프가 옮겨 간다
     syncLyrics();
   }
   function setRange(r, f) { $(".fill", r).style.width = f * 100 + "%"; $(".knob", r).style.left = f * 100 + "%"; }
@@ -780,7 +795,7 @@
   let lyrState = null; // {id, data, boxes:[el]}
   function lyricsHtml(d) {
     if (!d || (!d.synced && !d.plain)) return `<div class="lyrics plain"><p class="note" style="font-size:16px;margin-top:20px">이 곡에는 가사가 없어요.</p></div>`;
-    if (d.synced) return `<div class="lyrics">${d.synced.map(([ms, text], i) => `<p class="ln${text.trim() ? "" : " blank"}" data-ms="${ms}" data-k="${i}">${esc(text) || "♪"}</p>`).join("")}</div>`;
+    if (d.synced) return `<div class="lyrics">${d.synced.map(([ms, text], i) => `<p class="ln${text.trim() ? "" : " blank"}" data-ms="${ms}" data-k="${i}"><span>${esc(text) || "♪"}</span></p>`).join("")}</div>`;
     return `<div class="lyrics plain"><p class="note">시간 정보가 없는 가사예요</p>${d.plain.split(/\r?\n/).map((l) => `<p class="ln">${esc(l) || "&nbsp;"}</p>`).join("")}</div>`;
   }
   function mountLyrics(box) {
@@ -805,7 +820,7 @@
       const lines = box.querySelectorAll(".ln");
       lines.forEach((el, i) => { el.classList.toggle("cur", i === k); el.classList.toggle("past", i < k); });
       const el = lines[Math.max(0, k)];
-      const scroller = box.closest("#panel-body, .np-side-body");
+      const scroller = box.closest("#panel-body, .np-side-body, .np-memo-page");
       if (el && scroller && !box._userScroll) {
         const top = el.offsetTop - scroller.clientHeight * 0.32;
         scroller.scrollTo({ top, behavior: force ? "auto" : "smooth" });
@@ -850,30 +865,35 @@
   const fp = $("#fullplayer");
   let npSide = "queue"; // 옆(폰은 아래) 패널: queue | lyrics
   let npId = null;
+  let npMemo = false; // 폰: 카세트 대신 가사 메모지를 펼쳐 둔 상태
+  // 폰 가사 모양: paper(줄 메모지에 손글씨) | plain(일반 가사)
+  // 지금은 메모지만 쓴다. 일반 가사 모양과 오른쪽 위 전환 버튼은 코드·CSS(.np-memo.plain)에 그대로 남겨 두었으니
+  // 다시 고를 수 있게 하려면 LYR_THEME_TOGGLE 를 true 로 바꾸면 된다.
+  const LYR_THEME_TOGGLE = false;
+  let memoTheme = LYR_THEME_TOGGLE ? (() => { try { return localStorage.getItem("mc.lyrTheme") === "plain" ? "plain" : "paper"; } catch (e) { return "paper"; } })() : "paper";
+  const memoThemeBtn = () => !LYR_THEME_TOGGLE ? "" : `<button class="icon-btn memo-theme" data-act="memo-theme" title="${memoTheme === "paper" ? "일반 가사로" : "메모지로"}"><i class="ic ${memoTheme === "paper" ? "ic-lyrics" : "ic-pen"}"></i></button>`;
   function openFull() { if (!P.current) return; fp.hidden = false; npId = null; renderFull(); }
-  function closeFull() { fp.hidden = true; fp.innerHTML = ""; npId = null; }
-  const CTX_LABEL = { album: "앨범에서 재생 중", artist: "아티스트에서 재생 중", playlist: "재생목록에서 재생 중", collection: "곡 목록에서 재생 중" };
+  function closeFull() { fp.classList.remove("q-open"); fp.hidden = true; fp.innerHTML = ""; npId = null; }
   function renderFull() {
     if (fp.hidden) return;
     const t = P.current; if (!t) return closeFull();
     // 같은 곡이면 버튼 상태만 바꾼다 (카세트 애니메이션이 끊기지 않게)
     if (npId === t.id) { syncFullControls(); return; }
     npId = t.id;
-    const ctx = P.context;
     const bg = t.albumKey ? API.artUrl(t.albumKey, 300) : "";
     fp.innerHTML = `
       <div class="np-bg" style="${U.phStyle(t.albumKey + t.album)}">${bg ? `<img alt="" src="${esc(bg)}" onerror="this.remove()">` : ""}</div>
       <div class="np-top">
         <button class="icon-btn" data-act="close-full" title="닫기"><i class="ic ic-down"></i></button>
-        <div class="ctx"><small>${esc((ctx && CTX_LABEL[ctx.type]) || "재생 중")}</small><b>${esc((ctx && ctx.name) || "")}</b></div>
+        <div class="ctx"></div>
         <button class="icon-btn" data-act="more" data-id="${esc(t.id)}" title="더 보기"><i class="ic ic-more"></i></button>
       </div>
       <div class="np-main">
         <section class="np-deck">
-          <div class="np-tape-wrap">${cassette(contextTape(), t, { big: true, now: true, order: P.index + 1, attrs: 'data-act="toggle" title="재생/일시정지"' })}</div>
+          <div class="np-tape-wrap${npMemo && isMobile() ? " memo" : ""}">${cassette(contextTape(), t, { big: true, now: true, order: P.index + 1, attrs: 'data-act="toggle" title="재생/일시정지"' })}
+            <div class="np-memo ${memoTheme}" data-act="memo-close">${memoThemeBtn()}<div class="np-memo-page"><div data-lyr></div></div></div></div>
           <div class="np-meta">
-            <div><b>${esc(t.title)}</b><span>${artistLinks(t)}${t.album ? ` · <a href="${albumHref(t)}" data-stop>${esc(t.album)}</a>` : ""}</span>
-              <div class="np-no">${esc(tierOf(t.plays).name)}${t.plays ? " · " + U.num(t.plays) + "번 들음" : ""}</div></div>
+            <div><b>${esc(t.title)}</b><span>${artistLinks(t)}</span></div>
           </div>
           <div class="np-seek"><div class="range" data-range="seek"><div class="track"><div class="fill"></div></div><div class="knob"></div></div>
             <div class="times"><span data-time="pos">${U.fmtDur(P.pos)}</span><span data-time="dur">${U.fmtDur(P.dur)}</span></div></div>
@@ -884,9 +904,13 @@
             <button class="icon-btn" data-act="next" title="다음"><i class="ic ic-next"></i></button>
             <button class="icon-btn" data-act="repeat" data-np="repeat" title="반복"><i class="ic"></i></button>
           </div>
-          ${P.native ? "" : `<div class="np-vol"><i class="ic ic-volume"></i><div class="range" data-range="vol"><div class="track"><div class="fill"></div></div><div class="knob"></div></div></div>`}
+          <div class="np-foot">${P.native ? "<span></span>" : `<div class="np-vol"><button class="icon-btn np-foot-btn" data-act="np-vol" title="볼륨"><i class="ic ic-volume"></i></button>
+            <div class="np-vol-pop"><div class="range" data-range="vol"><div class="track"><div class="fill"></div></div><div class="knob"></div></div></div></div>`}
+            <button class="icon-btn np-foot-btn np-foot-q" data-act="mini-queue" title="재생목록"><i class="ic ic-queue"></i></button></div>
         </section>
+        <div class="np-sheet-bg" data-act="q-close"></div>
         <aside class="np-side">
+          <div class="np-side-tape">${cassette(contextTape(), t, { now: true, order: P.index + 1, noHeart: true })}</div>
           <div class="np-tabs"><button data-act="np-side" data-v="queue">재생목록</button><button data-act="np-side" data-v="lyrics">가사</button>
             <a class="np-card-link" href="#/track/${encodeURIComponent(t.id)}" data-act="close-full">곡 상세보기 ›</a></div>
           <div class="np-side-body"></div>
@@ -898,7 +922,14 @@
     if (vol) bindRange(vol, () => P.volume, (f) => (P.volume = f), (f) => (P.volume = f));
     syncFullControls();
     renderNpSide();
+    if (npMemo && isMobile()) mountLyrics($(".np-memo [data-lyr]", fp));
     updateTime();
+  }
+  function setMemo(on) {
+    npMemo = on;
+    const w = $(".np-tape-wrap", fp); if (!w) return;
+    w.classList.toggle("memo", on);
+    if (on) mountLyrics($(".np-memo [data-lyr]", w));
   }
   function syncFullControls() {
     if (fp.hidden) return;
@@ -906,13 +937,14 @@
     const sh = $('[data-np="shuffle"]', fp); if (sh) sh.classList.toggle("on", P.shuffle);
     const rp = $('[data-np="repeat"]', fp);
     if (rp) { rp.classList.toggle("on", P.repeat !== "off"); rp.firstElementChild.className = "ic " + (P.repeat === "one" ? "ic-repeat1" : "ic-repeat"); }
-    const tp = $(".tape.big", fp); if (tp) { tp.classList.add("now"); tp.classList.toggle("paused", !P.playing); }
+    $$(".tape.big, .np-side-tape .tape", fp).forEach((tp) => { tp.classList.add("now"); tp.classList.toggle("paused", !P.playing); });
     const fv = $(".tape.big .tape-heart", fp), t = P.current;
     if (fv && t) fv.classList.toggle("on", !!t.fav);
   }
   function renderNpSide() {
     if (fp.hidden) return;
     const body = $(".np-side-body", fp); if (!body) return;
+    if (isMobile() && npSide === "lyrics") npSide = "queue"; // 폰은 가사를 카세트 자리 메모지로 본다
     $$(".np-tabs [data-v]", fp).forEach((b) => b.classList.toggle("on", b.dataset.v === npSide));
     if (npSide === "lyrics") { body.innerHTML = "<div data-lyr></div>"; mountLyrics($("[data-lyr]", body)); }
     else {
@@ -1055,6 +1087,10 @@
     if (U.clickSuppressed()) { e.preventDefault(); e.stopPropagation(); return; }
     const a = e.target.closest("[data-act]");
     const rowEl = e.target.closest(".row[data-id]");
+    // 재생 화면 볼륨: 바깥을 누르면 접는다
+    const vo = !fp.hidden && $(".np-vol.open", fp); if (vo && !e.target.closest(".np-vol")) vo.classList.remove("open");
+    // 폰 재생 막대: 오른쪽 버튼들 말고는 어디를 눌러도 재생 화면으로
+    if (isMobile() && e.target.closest("#playerbar") && !e.target.closest(".pb-mini")) { e.preventDefault(); openFull(); return; }
     if (e.target.closest("[data-stop]")) {
       if (isMobile() && e.target.closest("#playerbar")) { e.preventDefault(); openFull(); return; }
       if (!fp.hidden) closeFull();
@@ -1065,7 +1101,17 @@
       const id = a.dataset.id || (a.closest("[data-id]") && a.closest("[data-id]").dataset.id);
       switch (act) {
         case "back": history.back(); return;
-        case "toggle": P.toggle(); return;
+        case "toggle":
+          if (isMobile() && a.closest(".np-tape-wrap")) { setMemo(true); return; } // 폰: 카세트를 누르면 가사 메모지
+          P.toggle(); return;
+        case "memo-close": if (!e.target.closest(".ln[data-ms]")) setMemo(false); return;
+        case "memo-theme": {
+          memoTheme = memoTheme === "paper" ? "plain" : "paper";
+          try { localStorage.setItem("mc.lyrTheme", memoTheme); } catch (err) {}
+          const m = a.closest(".np-memo"); m.classList.remove("paper", "plain"); m.classList.add(memoTheme);
+          a.outerHTML = memoThemeBtn();
+          syncLyrics(true); return;
+        }
         case "next": P.next(); return;
         case "prev": P.prev(); return;
         case "shuffle": toast(P.toggleShuffle() ? "셔플을 켰어요" : "셔플을 껐어요"); return;
@@ -1073,6 +1119,12 @@
         case "fav": e.preventDefault(); toggleFav(id); return;
         case "more": { e.preventDefault(); e.stopPropagation(); const r = a.getBoundingClientRect(); const lst = a.closest("[data-list]"); trackMenu(id, r.left - 200, r.bottom + 4, lst ? { list: lst.dataset.list, i: rowEl ? +rowEl.dataset.i : -1 } : null); return; }
         case "open-full": openFull(); return;
+        case "np-vol": a.parentElement.classList.toggle("open"); return;
+        case "mini-queue": // 재생 화면을 열고 재생목록을 아래에서 끌어올린다 (폰)
+          npSide = "queue"; if (fp.hidden) openFull(); else renderNpSide();
+          if (isMobile()) fp.classList.add("q-open");
+          return;
+        case "q-close": fp.classList.remove("q-open"); return;
         case "close-full": closeFull(); return;
         case "np-side": npSide = a.dataset.v; renderNpSide(); return;
         case "panel": { const v = a.dataset.v; if (panelOpen && panelTab === v) panelOpen = false; else { panelOpen = true; panelTab = v; } try { localStorage.setItem("mc.panel", panelOpen ? "1" : "0"); } catch (err) {} renderPanel(); renderBar(); return; }
@@ -1254,8 +1306,15 @@
       return;
     }
     P = new Player((id) => L.byId.get(id));
+    // 새로 재생을 시작하면 (PC·폰 모두) 카세트 재생 화면으로 바로 넘어간다
+    const playList = P.playList.bind(P);
+    P.playList = (...args) => { playList(...args); if (fp.hidden) openFull(); };
     P.on("state", onState);
-    P.on("queue", () => { if (panelOpen && panelTab === "queue") renderPanel(); if (npSide === "queue") renderNpSide(); });
+    P.on("queue", () => {
+      if (panelOpen && panelTab === "queue") renderPanel(); if (npSide === "queue") renderNpSide();
+      // 폰 홈 화면 위젯의 카세트에도 같은 테이프 이름을 적는다
+      try { if (window.NativeBridge && NativeBridge.setTapeName && P.current) NativeBridge.setTapeName(contextTape().name); } catch (e) {}
+    });
     P.on("time", updateTime);
     P.on("played", onPlayed);
     P.on("listened", ({ id, ms }) => { const t = L.byId.get(id); if (t) t.listenedMs += ms; });

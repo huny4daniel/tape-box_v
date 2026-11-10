@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/wm_key_up" />
+    <item android:top="3dp" android:left="12dp" android:right="12dp" android:gravity="top" android:height="3dp">
+        <shape><solid android:color="#FFE0662C" /><corners android:radius="1.5dp" /></shape>
+    </item>
+</layer-list>

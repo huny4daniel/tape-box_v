@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">소장곡</string>
+    <string name="widget_desc">돌아가는 카세트와 워크맨 건반으로 곡을 넘겨요</string>
 </resources>

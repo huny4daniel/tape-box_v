@@ -68,12 +68,14 @@ public class PlaybackService extends MediaSessionService {
             @Override public void onIsPlayingChanged(boolean playing) {
                 if (playing) lisSince = SystemClock.elapsedRealtime();
                 else { flushSegment(); checkCount(); saveQueue(); }
+                TapeWidget.push(PlaybackService.this, player);
             }
             @Override public void onMediaItemTransition(@Nullable MediaItem item, int reason) {
                 finishListen();
                 lisId = item == null ? null : item.mediaId;
                 if (player.isPlaying()) lisSince = SystemClock.elapsedRealtime();
                 saveQueue();
+                TapeWidget.push(PlaybackService.this, player);
             }
             @Override public void onTimelineChanged(@NonNull androidx.media3.common.Timeline t, int reason) { saveQueue(); }
         });
@@ -88,6 +90,7 @@ public class PlaybackService extends MediaSessionService {
                 lisSince = SystemClock.elapsedRealtime();
                 checkCount();
                 prefs.edit().putLong("pos", player.getCurrentPosition()).apply();
+                TapeWidget.push(PlaybackService.this, player); // 감긴 테이프 양 (같은 단계면 다시 그리지 않음)
             }
             h.postDelayed(this, 5000);
         }
@@ -149,6 +152,7 @@ public class PlaybackService extends MediaSessionService {
                     player.setRepeatMode(prefs.getInt("repeat", Player.REPEAT_MODE_OFF));
                     player.setMediaItems(items, newIndex, prefs.getLong("pos", 0));
                     player.prepare();
+                    TapeWidget.push(this, player);
                 } catch (Exception ignored) {}
             });
         });
@@ -162,7 +166,7 @@ public class PlaybackService extends MediaSessionService {
 
     @Override public void onDestroy() {
         h.removeCallbacks(tick);
-        if (player != null) { finishListen(); saveQueue(); }
+        if (player != null) { finishListen(); saveQueue(); TapeWidget.push(this, null); }
         if (session != null) { session.release(); session = null; }
         if (player != null) { player.release(); player = null; }
         super.onDestroy();

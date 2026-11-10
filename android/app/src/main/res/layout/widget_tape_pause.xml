@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 화면 위젯: 돌아가는 카세트 + 워크맨 건반 (pause) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="10dp" android:background="@drawable/widget_bg">
+    <!-- 카세트 그림과 릴 그림은 같은 비율(16:10)이라 fitCenter로 겹치면 위치가 정확히 맞는다 -->
+    <FrameLayout android:id="@+id/w_tape_area" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <ImageView android:id="@+id/w_tape" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:scaleType="fitCenter" android:contentDescription="지금 재생 중인 카세트" />
+        <!-- 멈춤: 릴이 서 있다 -->
+        <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:src="@drawable/widget_reels_0" android:importantForAccessibility="no" />
+    </FrameLayout>
+    <include layout="@layout/widget_keys" />
+</LinearLayout>

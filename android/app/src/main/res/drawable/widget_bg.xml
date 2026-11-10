@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 위젯 바탕: 카세트 그림의 모서리 색(#1A1612)과 같아야 테두리가 이어져 보인다 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#FF1A1612" />
+    <corners android:radius="18dp" />
+    <stroke android:width="1dp" android:color="#14FFFFFF" />
+</shape>

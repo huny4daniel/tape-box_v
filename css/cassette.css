@@ -74,7 +74,7 @@
 .tape-heart svg { width: 62%; height: 62%; fill: none; stroke: #4a3e32; stroke-width: 2.2; stroke-linejoin: round; transition: fill .2s, stroke .2s; }
 .tape-heart:hover { transform: scale(1.12) rotate(-6deg); }
 .tape-heart:hover svg { stroke: #2a2218; }
-.tape-heart.on svg { fill: #2b2620; stroke: #1a1612; } /* 펜으로 까맣게 칠한 하트 */
+.tape-heart.on svg { fill: #c8382b; stroke: #8f2219; } /* 빨간 펜으로 칠한 하트 */
 .tape-heart.on { animation: heart-stamp .3s ease-out; }
 @keyframes heart-stamp { 40% { transform: scale(1.25) rotate(-8deg); } }
 
@@ -82,18 +82,18 @@
 .tape-window {
   position: absolute; z-index: 1; left: 23%; right: 23%; top: 16.5cqw; height: 15cqw;
   border-radius: .8cqw;
-  background: linear-gradient(170deg, rgba(255,255,255,.1), rgba(255,255,255,0) 35%), linear-gradient(rgba(38,33,29,.82), rgba(18,15,13,.9));
-  box-shadow: 0 0 0 1.1cqw rgba(238,229,210,.95), 0 0 0 1.35cqw rgba(0,0,0,.22), inset 0 .5cqw 1cqw rgba(0,0,0,.6);
+  background: linear-gradient(170deg, rgba(255,255,255,.12), rgba(255,255,255,0) 35%), linear-gradient(rgba(64,57,51,.8), rgba(40,35,31,.88)); /* 감긴 테이프가 비쳐 보이는 연기색 창 */
+  box-shadow: 0 0 0 1.1cqw rgba(238,229,210,.95), 0 0 0 1.35cqw rgba(0,0,0,.22), inset 0 .5cqw 1cqw rgba(0,0,0,.5);
   display: flex; align-items: center; justify-content: space-between; padding: 0 3.4cqw; overflow: hidden;
 }
 .reel {
-  position: relative; z-index: 1; width: 6.2cqw; aspect-ratio: 1; border-radius: 50%;
-  background: radial-gradient(circle, transparent 0 1.75cqw, #efe9df 1.8cqw 3.1cqw);
+  position: relative; z-index: 1; width: 7.2cqw; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, transparent 0 2.25cqw, #efe9df 2.3cqw 3.6cqw); /* 가운데 구멍: 연필이 들어갈 만큼 */
 }
 .reel::before { /* 톱니 달린 허브 */
-  content: ""; position: absolute; inset: 1.3cqw; border-radius: 50%;
-  background: repeating-conic-gradient(#efe9df 0 13deg, transparent 13deg 60deg);
-  -webkit-mask: radial-gradient(circle, transparent 0 .75cqw, #000 .8cqw); mask: radial-gradient(circle, transparent 0 .75cqw, #000 .8cqw);
+  content: ""; position: absolute; inset: 1.25cqw; border-radius: 50%;
+  background: repeating-conic-gradient(#efe9df 0 14deg, transparent 14deg 60deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 1.55cqw, #000 1.6cqw); mask: radial-gradient(circle, transparent 0 1.55cqw, #000 1.6cqw);
 }
 .reel.l { box-shadow: 0 0 0 calc(.5cqw + (1 - var(--p)) * 2.7cqw) #2d2119, 0 0 0 calc(.6cqw + (1 - var(--p)) * 2.7cqw) rgba(0,0,0,.35); }
 .reel.r { box-shadow: 0 0 0 calc(.5cqw + var(--p) * 2.7cqw) #2d2119, 0 0 0 calc(.6cqw + var(--p) * 2.7cqw) rgba(0,0,0,.35); }
@@ -163,7 +163,6 @@
   background: repeating-linear-gradient(117deg, transparent 0 7px, rgba(255,255,255,.07) 7px 8px), repeating-linear-gradient(32deg, transparent 0 13px, rgba(0,0,0,.08) 13px 14px);
 }
 .tape.wear-5 .mtape::before { background-color: rgba(222,204,160,.95); }
-.tape.now .tape-shell { box-shadow: 0 0 0 2px var(--accent), inset 0 .35cqw 0 rgba(255,255,255,.14), inset 0 -.4cqw 0 rgba(0,0,0,.45); }
 
 /* ───────── 재생 화면 ───────── */
 #fullplayer {
@@ -184,8 +183,10 @@
 
 .np-main { position: relative; z-index: 1; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 36px; padding: 0 36px 30px; }
 .np-deck { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 0; }
-.np-tape-wrap { width: min(660px, 100%, calc((100vh - 380px) * 1.58)); }
+.np-tape-wrap { width: min(530px, 100%, calc((100vh - 380px) * 1.28)); }
 .np-tape-wrap .tape { filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)); }
+.np-memo { display: none; } /* 가사 메모지는 폰에서만 */
+.np-side-tape { display: none; } /* 재생목록 시트 위 테이프도 폰에서만 */
 .np-tape-wrap .tape.now .tape-shell { box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.14), inset 0 -.4cqw 0 rgba(0,0,0,.45); }
 .np-tape-wrap .tape:active { transform: scale(.99); }
 .np-meta, .np-seek, .np-ctrl, .np-vol { width: min(660px, 100%); }
@@ -203,10 +204,21 @@
 .np-ctrl .icon-btn { width: 48px; height: 48px; color: var(--text); }
 .np-ctrl .icon-btn .ic { width: 24px; height: 24px; }
 .np-ctrl .icon-btn.on { color: var(--accent); }
+/* 아래 줄: 왼쪽 볼륨 · 오른쪽 재생목록 (PC는 재생목록이 옆에 늘 보여서 볼륨만 왼쪽 아래 구석에) */
+.np-foot { display: contents; }
+.np-foot-q { display: none; }
+.np-foot-btn { width: 44px; height: 44px; border-radius: 50%; color: var(--text-2); }
+.np-foot-btn .ic { width: 22px; height: 22px; }
+.np-foot-btn:active { background: rgba(255,255,255,.1); }
 .np-play { width: 66px; height: 66px; border-radius: 50%; background: var(--text); color: var(--bg); display: grid; place-items: center; transition: transform .12s; }
 .np-play:hover { transform: scale(1.05); }
 .np-play .ic { width: 28px; height: 28px; }
-.np-vol { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; color: var(--text-2); }
+/* 볼륨: 왼쪽 아래 버튼, 누르면 막대가 떠오른다 */
+.np-vol { position: absolute; z-index: 3; left: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); width: auto; display: flex; align-items: center; gap: 4px; color: var(--text-2); }
+.np-vol.open > .icon-btn { color: var(--text); background: rgba(255,255,255,.1); }
+.np-vol-pop { position: absolute; left: calc(100% + 6px); top: 50%; margin-top: -20px; display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 20px; background: rgba(20,18,16,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  opacity: 0; transform: translateX(-8px) scale(.96); transform-origin: left center; pointer-events: none; transition: opacity .15s, transform .15s; }
+.np-vol.open .np-vol-pop { opacity: 1; transform: none; pointer-events: auto; }
 .np-vol .range { flex: none; width: 160px; }
 
 .np-side { display: flex; flex-direction: column; min-height: 0; background: rgba(0,0,0,.3); border-radius: 14px; overflow: hidden; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
@@ -230,14 +242,77 @@
 
   #fullplayer { overflow-y: auto; }
   .np-top { position: sticky; top: 0; padding: env(safe-area-inset-top, 0px) 12px 0; height: calc(56px + env(safe-area-inset-top, 0px)); }
-  .np-main { display: block; padding: 0 20px calc(env(safe-area-inset-bottom, 0px) + 24px); }
-  .np-deck { min-height: calc(100vh - 56px - env(safe-area-inset-top, 0px) - 20px); min-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px) - 20px); justify-content: center; padding-bottom: 12px; }
-  .np-tape-wrap { width: 100%; }
-  .np-meta { margin-top: 26px; }
+  .np-main { display: block; padding: 0 20px; } /* 재생목록이 시트로 빠져서 내용이 화면에 맞으면 스크롤이 생기지 않는다 */
+  .np-deck { min-height: calc(100vh - 56px - env(safe-area-inset-top, 0px) - 20px); min-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px) - 20px); justify-content: flex-start; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  /* 카세트는 남는 자리 가운데에 그대로, 제목·재생바·버튼은 화면 아래부터 쌓는다 */
+  .np-tape-wrap { width: 90%; margin: auto 0; padding-bottom: 48px; }
+  .np-tape-wrap.memo { width: 78%; }
+  .np-tape-wrap.memo > .tape { display: none; }
+  .np-tape-wrap.memo .np-memo { display: block; }
+
+  .np-tabs [data-v="lyrics"] { display: none; } /* 폰 가사는 카세트 자리에서 */
+  .np-tabs { display: none; } /* 폰 재생목록 시트: 탭 대신 위에 테이프 */
+  .np-side-tape { display: block; flex: none; width: min(62%, 260px); margin: 14px auto 10px; pointer-events: none; }
+
+  /* 가사 상자 (카세트 자리) */
+  .np-memo { position: relative; height: clamp(285px, calc(100dvh - 385px), 600px); cursor: pointer; animation: memo-in .32s cubic-bezier(.2,.8,.3,1); }
+  .np-memo-page { height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; position: relative; }
+  .np-memo-page::-webkit-scrollbar { display: none; }
+  .np-memo .lyrics { position: relative; }
+  .memo-theme { position: absolute; z-index: 2; top: 6px; right: 6px; width: 36px; height: 36px; border-radius: 50%; }
+  .memo-theme .ic { width: 19px; height: 19px; }
+
+  /* 메모지: 줄 노트에 펜으로 적은 느낌 */
+  .np-memo.paper { --lh: 34px; transform: rotate(-.8deg); border-radius: 3px 3px 6px 6px; box-shadow: 0 18px 40px rgba(0,0,0,.5); }
+  .np-memo.paper .np-memo-page {
+    border-radius: inherit;
+    background-color: #f5efdc;
+    background-image:
+      linear-gradient(90deg, transparent 38px, rgba(214,92,92,.55) 38px 39.5px, transparent 39.5px),
+      repeating-linear-gradient(transparent 0 calc(var(--lh) - 1px), rgba(92,128,180,.32) calc(var(--lh) - 1px) var(--lh));
+    background-attachment: local;
+    box-shadow: inset 0 0 40px rgba(160,130,70,.12);
+  }
+  .np-memo.paper .memo-theme { color: rgba(31,45,77,.6); background: rgba(245,239,220,.85); }
+  .np-memo.paper .lyrics, .np-memo.paper .lyrics.plain { padding: var(--lh) 44px 45% 50px; }
+  .np-memo.paper .lyrics .ln, .np-memo.paper .lyrics.plain .ln, .np-memo.paper .lyrics .note {
+    margin: 0; min-height: var(--lh); line-height: var(--lh);
+    font-family: "Nanum Pen Script", var(--font); font-size: 27px; font-weight: 400; letter-spacing: 0;
+    color: rgba(31,45,77,.5); transition: color .3s;
+    width: fit-content; max-width: 100%; /* 글자 부분만 눌리게 (빈 곳은 가사 닫기) */
+  }
+  .np-memo.paper .lyrics .ln.past { color: rgba(31,45,77,.75); }
+  .np-memo.paper .lyrics .ln.cur { color: #16213d; }
+  .np-memo.paper .lyrics .ln.cur > span { background: linear-gradient(transparent 36%, rgba(255,214,70,.6) 36% 90%, transparent 90%); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .np-memo.paper .lyrics .ln:hover { color: #16213d; }
+  .np-memo.paper .lyrics.plain .ln { color: #1f2d4d; }
+  .np-memo.paper .lyrics .note { color: rgba(31,45,77,.55); font-size: 23px; }
+
+  /* 일반 가사 */
+  .np-memo.plain .np-memo-page { border-radius: 14px; background: rgba(0,0,0,.28); }
+  .np-memo.plain .memo-theme { color: var(--text-2); background: rgba(0,0,0,.35); }
+  .np-memo.plain .lyrics, .np-memo.plain .lyrics.plain { padding: 22px 48px 45% 20px; }
+  .np-memo.plain .lyrics .ln { font-size: 21px; margin-bottom: 14px; width: fit-content; max-width: 100%; }
+  .np-memo.plain .lyrics.plain .ln { font-size: 17px; margin-bottom: 8px; }
+  @keyframes memo-in { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; } }
+  .np-memo.paper { animation-name: memo-in-paper; }
+  @keyframes memo-in-paper { from { opacity: 0; transform: rotate(-4deg) translateY(16px) scale(.96); } to { opacity: 1; transform: rotate(-.8deg); } }
+  .np-meta { margin-top: auto; }
   .np-meta b { font-size: 22px; }
   .np-ctrl { justify-content: space-between; gap: 0; }
-  .np-side { margin-top: 6px; }
-  .np-side-body { max-height: 70vh; }
+  .np-foot { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 6px; }
+  .np-foot-q { display: grid; }
+  .np-foot .np-vol { position: relative; left: auto; bottom: auto; }
+  /* 재생목록은 스크롤로 내려가지 않고, 버튼을 누르면 아래에서 올라오는 시트로 */
+  .np-sheet-bg { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .np-side {
+    position: fixed; z-index: 5; left: 0; right: 0; bottom: 0; height: min(90vh, calc(100dvh - 56px - env(safe-area-inset-top, 0px)));
+    border-radius: 18px 18px 0 0; background: rgba(22,20,18,.92); padding-bottom: env(safe-area-inset-bottom, 0px);
+    transform: translateY(105%); transition: transform .3s cubic-bezier(.2,.8,.3,1), visibility 0s .3s; visibility: hidden;
+  }
+  .np-side::before { content: ""; display: block; flex: none; width: 38px; height: 4px; margin: 8px auto 0; border-radius: 2px; background: rgba(255,255,255,.25); }
+  #fullplayer.q-open .np-sheet-bg { opacity: 1; pointer-events: auto; }
+  #fullplayer.q-open .np-side { transform: none; visibility: visible; transition-delay: 0s; }
 }
 
 /* ───────── 테이프에 직접 제목 쓰기 (재생목록 만들기·고치기) ───────── */

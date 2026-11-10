@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 건반 아래 그림자 (튀어나와 보이게) -->
+    <item android:top="3dp">
+        <shape><solid android:color="#FF0B0A09" /><corners android:radius="6dp" /></shape>
+    </item>
+    <!-- 옆면 -->
+    <item android:bottom="0dp" android:top="1dp">
+        <shape><solid android:color="#FF7A766F" /><corners android:radius="6dp" /></shape>
+    </item>
+    <!-- 윗면: 결이 있는 은색 -->
+    <item android:bottom="4dp">
+        <shape>
+            <gradient android:angle="270" android:startColor="#FFF4F2EC" android:centerColor="#FFD2CEC6" android:endColor="#FFB4AFA6" />
+            <corners android:radius="6dp" />
+            <stroke android:width="1dp" android:color="#FF8E8A83" />
+        </shape>
+    </item>
+    <!-- 윗면 앞쪽의 홈 두 줄 -->
+    <item android:bottom="9dp" android:left="10dp" android:right="10dp" android:gravity="bottom" android:height="1dp">
+        <shape><solid android:color="#55000000" /></shape>
+    </item>
+    <item android:bottom="8dp" android:left="10dp" android:right="10dp" android:gravity="bottom" android:height="1dp">
+        <shape><solid android:color="#99FFFFFF" /></shape>
+    </item>
+</layer-list>

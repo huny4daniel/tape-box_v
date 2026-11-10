@@ -251,6 +251,8 @@ public class MainActivity extends ComponentActivity {
             withController(c -> c.setRepeatMode("one".equals(m) ? Player.REPEAT_MODE_ONE : "all".equals(m) ? Player.REPEAT_MODE_ALL : Player.REPEAT_MODE_OFF));
         }
         @JavascriptInterface public String getState() { return stateJson; }
+        /** 홈 화면 위젯 카세트에 적을 테이프 이름 (지금 재생 중인 재생목록) */
+        @JavascriptInterface public void setTapeName(String name) { TapeWidget.setTapeName(MainActivity.this, name); }
 
         @JavascriptInterface public String getServerInfo() {
             try {
