@@ -653,10 +653,19 @@
     return `<div class="page"><h2 style="font-size:30px;margin:8px 0 0">설정 · 연결</h2>
       ${conn}
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
+      ${N ? playlistDirCard(N) : ""}
       <div class="set-card" id="folder-card">${folderCard()}</div>
       <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 재생목록 ${L.playlists.length}개</p></div>
     </div>`;
   };
+
+  // 다른 앱(삼성뮤직 등)이 내보낸 재생목록 파일 폴더 (폰에서만 고를 수 있다)
+  function playlistDirCard(N) {
+    let dir = ""; try { dir = N.getPlaylistDir ? N.getPlaylistDir() : ""; } catch (e) {}
+    return `<div class="set-card"><div class="set-row"><div><h3>재생목록 파일 가져오기</h3><p>삼성뮤직에서 내보낸 .smpl, 다른 앱의 .m3u 파일이 있는 폴더를 고르면 라이브러리를 읽을 때마다 가져와요. 이 앱에서 고친 재생목록은 그대로 둬요.</p></div>
+      <button class="btn" data-act="pldir-pick">${dir ? "바꾸기" : "폴더 고르기"}</button></div>
+      ${dir ? `<div class="addr"><div><span>폴더</span><b style="font-size:15px">${esc(dir)}</b></div></div><div style="margin-top:10px;text-align:right"><button class="btn ghost" data-act="pldir-clear">해제</button></div>` : ""}</div>`;
+  }
 
   // 라이브러리 폴더: 끈 폴더의 음악은 컬렉션에 넣지 않는다 (폰 서버가 걸러 준다)
   let FD = null; // { folders:[{path,count}], off:Set, autoNew, open:Set, dirty, saving }
@@ -1090,6 +1099,8 @@
         case "pl-more": { const r = a.getBoundingClientRect(); openMenu(r.left, r.bottom + 4, `<button data-m="pl-rename"><i class="ic ic-pen"></i>이름·설명 고치기</button><button data-m="pl-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="pl-delete" class="danger"><i class="ic ic-trash"></i>재생목록 지우기</button>`); return; }
         case "pl-remove": { const p = curPlaylist(); if (p && rowEl) { const items = p.items.slice(); items.splice(+rowEl.dataset.i, 1); savePlaylist(p, { items }); } return; }
         case "pl-add": { const p = curPlaylist(); if (p && !p.items.includes(id)) { savePlaylist(p, { items: p.items.concat([id]) }); toast("담았어요"); } return; }
+        case "pldir-pick": try { window.NativeBridge.pickPlaylistDir(); } catch (err) {} return;
+        case "pldir-clear": try { window.NativeBridge.clearPlaylistDir(); } catch (err) {} toast("가져오기 폴더를 해제했어요. 이미 가져온 재생목록은 남아 있어요"); rerender(); return;
         case "fd-open": { const p = a.dataset.path; FD.open.has(p) ? FD.open.delete(p) : FD.open.add(p); renderFolderCard(); return; }
         case "fd-check": { const ps = fdUnder(a.dataset.path), turnOff = ps.some((p) => !FD.off.has(p)); ps.forEach((p) => (turnOff ? FD.off.add(p) : FD.off.delete(p))); FD.dirty = true; renderFolderCard(); return; }
         case "fd-auto": FD.autoNew = !FD.autoNew; FD.dirty = true; renderFolderCard(); return;

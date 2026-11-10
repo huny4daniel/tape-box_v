@@ -4,6 +4,7 @@ import android.content.ContentUris;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.util.Log;
 
@@ -17,14 +18,19 @@ import java.nio.charset.Charset;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 /**
- * 다른 플레이어가 만든 재생목록(MediaStore에 등록된 재생목록, 저장소의 .m3u/.m3u8 파일)을 가져온다.
+ * 다른 플레이어가 만든 재생목록(MediaStore에 등록된 재생목록, 저장소의 .m3u/.m3u8 파일,
+ * 사용자가 고른 폴더의 .smpl(삼성뮤직)/.m3u/.m3u8 파일)을 가져온다.
  * 라이브러리를 읽을 때마다 불리며, 한 번 가져온 재생목록은 이 앱에서 고치거나 지우기 전까지만 원본을 따라간다.
  */
 final class PlaylistImport {
@@ -68,7 +74,75 @@ final class PlaylistImport {
         } catch (Exception e) {
             Log.w(TAG, "playlists", e);
         }
+        count += importFolder(ctx, db, byPath, byFile, fileCount, byTag);
         if (count > 0) Log.i(TAG, "imported/updated " + count + " playlists");
+    }
+
+    static final String K_DIR = "playlist_dir";
+
+    /** 설정에서 고른 폴더(SAF)의 재생목록 파일들. 다른 앱이 만든 파일은 MediaStore로 보이지 않아 폴더 권한으로 직접 읽는다 */
+    private static int importFolder(Context ctx, Db db, Map<String, Track> byPath, Map<String, Track> byFile,
+                                    Map<String, Integer> fileCount, Map<String, Track> byTag) {
+        String dir = db.get(K_DIR, null);
+        if (dir == null || dir.isEmpty()) return 0;
+        int count = 0;
+        try {
+            Uri tree = Uri.parse(dir);
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+            try (Cursor c = ctx.getContentResolver().query(children, new String[]{
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+                if (c != null) while (c.moveToNext()) {
+                    String docId = c.getString(0), file = c.getString(1);
+                    if (docId == null || file == null) continue;
+                    String lower = file.toLowerCase(Locale.ROOT);
+                    boolean smpl = lower.endsWith(".smpl");
+                    if (!smpl && !lower.endsWith(".m3u") && !lower.endsWith(".m3u8")) continue;
+                    byte[] raw;
+                    try (InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, docId))) {
+                        raw = readAll(in);
+                    } catch (Exception e) { Log.w(TAG, "read " + file, e); continue; }
+                    if (raw == null) continue;
+                    String[] name = {stripExt(file).trim()};
+                    List<String> items = smpl ? parseSmpl(raw, name, byPath, byFile, fileCount, byTag)
+                            : parseM3u(raw, "", byPath, byFile, fileCount, byTag);
+                    if (items.isEmpty() || name[0].isEmpty()) continue;
+                    try {
+                        if (db.syncImportedPlaylist("doc:" + docId, name[0], items)) count++;
+                    } catch (Exception e) { Log.w(TAG, "save " + name[0], e); }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "folder " + dir, e); // 권한이 풀렸거나 폴더가 사라짐
+        }
+        return count;
+    }
+
+    /**
+     * 삼성뮤직이 내보낸 .smpl (JSON): name, members[{info: 파일 경로, artist, title, order}].
+     * name[0]에 재생목록 이름을 돌려준다
+     */
+    private static List<String> parseSmpl(byte[] raw, String[] name, Map<String, Track> byPath, Map<String, Track> byFile,
+                                          Map<String, Integer> fileCount, Map<String, Track> byTag) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        try {
+            JSONObject o = new JSONObject(decode(raw));
+            String n = o.optString("name", "").trim();
+            if (!n.isEmpty()) name[0] = n;
+            JSONArray m = o.optJSONArray("members");
+            if (m == null) return new ArrayList<>(out);
+            List<JSONObject> list = new ArrayList<>();
+            for (int i = 0; i < m.length(); i++) { JSONObject x = m.optJSONObject(i); if (x != null) list.add(x); }
+            list.sort(Comparator.comparingInt(x -> x.optInt("order", 0)));
+            for (JSONObject x : list) {
+                String info = x.optString("info", "");
+                Track t = info.isEmpty() ? null : resolve(info, "", byPath, byFile, fileCount);
+                if (t == null) t = byTag.get(tagKey(x.optString("artist", ""), x.optString("title", "")));
+                if (t != null) out.add(t.id);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "smpl", e);
+        }
+        return new ArrayList<>(out);
     }
 
     /** MediaStore가 기억하는 재생목록의 곡 순서 */
@@ -96,12 +170,16 @@ final class PlaylistImport {
         if (raw == null && data != null) {
             try (InputStream in = new FileInputStream(data)) { raw = readAll(in); } catch (Exception ignored) {}
         }
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        if (raw == null) return new ArrayList<>(out);
-
+        if (raw == null) return new ArrayList<>();
         String dir = data == null ? "" : normPath(data);
         int slash = dir.lastIndexOf('/');
         dir = slash >= 0 ? dir.substring(0, slash) : "";
+        return parseM3u(raw, dir, byPath, byFile, fileCount, byTag);
+    }
+
+    private static List<String> parseM3u(byte[] raw, String dir, Map<String, Track> byPath, Map<String, Track> byFile,
+                                         Map<String, Integer> fileCount, Map<String, Track> byTag) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
         String extArtist = null, extTitle = null;
         for (String line : decode(raw).split("\\r?\\n|\\r")) {
             line = line.trim();

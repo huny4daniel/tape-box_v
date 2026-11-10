@@ -15,7 +15,7 @@
 - `android/`: 폰 앱 (Java)
   - `Library`: MediaStore 스캔. 곡 id는 제목·아티스트·앨범·길이로 만든 고정 키
   - `FolderFilter`: 설정에서 끈 폴더(RELATIVE_PATH)는 스캔에서 뺀다. 처음 보는 폴더는 가장 가까운 상위 폴더 설정을, 없으면 「새 폴더 자동으로 넣기」를 따른다
-  - `PlaylistImport`: 스캔할 때 다른 플레이어의 재생목록(MediaStore 재생목록, `.m3u`/`.m3u8`)을 가져온다. 이 앱에서 고치거나 지우기 전까지는 원본 변경을 따라간다
+  - `PlaylistImport`: 스캔할 때 다른 플레이어의 재생목록(MediaStore 재생목록, `.m3u`/`.m3u8`, 설정에서 고른 폴더의 삼성뮤직 `.smpl`)을 가져온다. 이 앱에서 고치거나 지우기 전까지는 원본 변경을 따라간다
   - `Db`: 수집 번호·재생 기록·아끼는 곡·메모·재생목록 (SQLite). 컬렉션에서 빠진 곡의 기록도 남긴다
   - `Id3Lyrics`: ID3 태그의 SYLT/USLT 가사, USLT 안의 `[mm:ss.xx]` 시간 가사
   - `ArtCache`: mp3에 든 앨범아트를 크기별 JPEG로 캐시

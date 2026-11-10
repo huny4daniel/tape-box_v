@@ -3,6 +3,9 @@ package io.github.huny4daniel.musiccollection;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -16,6 +19,8 @@ import android.webkit.WebViewClient;
 
 import androidx.activity.ComponentActivity;
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
@@ -41,6 +46,21 @@ public class MainActivity extends ComponentActivity {
     private final List<Consumer<MediaController>> pending = new ArrayList<>();
     private volatile String stateJson = "{}";
     private boolean loaded = false, resumedOnce = false;
+    /** 재생목록 폴더 고르기 (다른 앱이 내보낸 .smpl/.m3u 파일을 읽을 권한을 받는다) */
+    private final ActivityResultLauncher<Uri> pickDir = registerForActivityResult(new ActivityResultContracts.OpenDocumentTree(), uri -> {
+        if (uri == null) return;
+        try {
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception e) { android.util.Log.w("Main", "persist", e); }
+        String old = app.db.get(PlaylistImport.K_DIR, "");
+        if (!old.isEmpty() && !old.equals(uri.toString())) releaseDir(old);
+        app.db.put(PlaylistImport.K_DIR, uri.toString());
+        app.rescan(null);
+    });
+
+    private void releaseDir(String u) {
+        try { getContentResolver().releasePersistableUriPermission(Uri.parse(u), Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override protected void onCreate(Bundle b) {
@@ -244,5 +264,22 @@ public class MainActivity extends ComponentActivity {
         }
         @JavascriptInterface public void setServerEnabled(boolean on) { runOnUiThread(() -> app.setRemoteEnabled(on)); }
         @JavascriptInterface public void rescan() { app.rescan(null); }
+
+        /** 고른 재생목록 폴더의 표시 이름 ("Music/Playlists"), 없으면 "" */
+        @JavascriptInterface public String getPlaylistDir() {
+            String u = app.db.get(PlaylistImport.K_DIR, "");
+            if (u.isEmpty()) return "";
+            try {
+                String id = DocumentsContract.getTreeDocumentId(Uri.parse(u)); // "primary:Music/Playlists"
+                int i = id.indexOf(':');
+                String p = i >= 0 ? id.substring(i + 1) : id;
+                return p.isEmpty() ? "저장공간 최상위" : p;
+            } catch (Exception e) { return "?"; }
+        }
+        @JavascriptInterface public void pickPlaylistDir() { runOnUiThread(() -> pickDir.launch(null)); }
+        @JavascriptInterface public void clearPlaylistDir() {
+            String u = app.db.get(PlaylistImport.K_DIR, "");
+            if (!u.isEmpty()) { releaseDir(u); app.db.put(PlaylistImport.K_DIR, ""); }
+        }
     }
 }
