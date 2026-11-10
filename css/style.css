@@ -571,3 +571,23 @@ img { display: block; }
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,.3); }
 ::-webkit-scrollbar-track { background: transparent; }
 @media (max-width: 820px) { ::-webkit-scrollbar { width: 0; height: 0; } }
+
+/* 라이브러리 폴더 */
+.fd-tree { margin-top: 14px; padding: 6px; background: var(--bg); border-radius: 8px; max-height: 360px; overflow-y: auto; }
+.fd-row { display: flex; align-items: center; gap: 2px; padding-left: calc(var(--d) * 20px); }
+.fd-caret { width: 28px; height: 32px; flex: none; display: grid; place-items: center; color: var(--text-3); }
+.fd-caret .chev { width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(-45deg); transition: transform .15s; }
+.fd-caret .chev.open { transform: rotate(45deg); }
+.fd-check { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; text-align: left; color: var(--text); }
+.fd-check:hover { background: var(--surface-2); }
+.fd-check b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.fd-check small { color: var(--text-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.fd-check .box { width: 18px; height: 18px; flex: none; border-radius: 4px; border: 2px solid var(--text-3); position: relative; }
+.fd-check.on .box { background: var(--accent); border-color: var(--accent); }
+.fd-check.on .box::after { content: ""; position: absolute; left: 4px; top: 0; width: 5px; height: 10px; border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.fd-check.part .box { border-color: var(--accent); }
+.fd-check.part .box::after { content: ""; position: absolute; left: 2px; right: 2px; top: 6px; height: 2px; background: var(--accent); }
+.fd-check.off b { color: var(--text-3); }
+.fd-foot { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-2); font-size: 13.5px; }
+.fd-foot b { color: var(--text); }
+.btn[disabled] { opacity: .45; pointer-events: none; }

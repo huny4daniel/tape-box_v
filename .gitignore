@@ -7,3 +7,6 @@ android/keystore/
 *.jks
 .idea/
 __pycache__/
+pc/build/
+pc/dist/
+*.spec

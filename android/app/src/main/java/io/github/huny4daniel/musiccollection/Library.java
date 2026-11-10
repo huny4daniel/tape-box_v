@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 
 /** 폰의 음악을 MediaStore에서 읽어 곡 목록을 만든다. 화면과 재생기는 모두 여기의 곡 id를 쓴다. */
 public class Library {
@@ -33,6 +34,8 @@ public class Library {
     private volatile Map<String, Track> byId = Collections.emptyMap();
     private volatile Map<String, Track> albumRep = Collections.emptyMap();
     private volatile boolean scanned = false;
+    /** 음악이 든 폴더마다 곡 수 (제외한 폴더도 포함) */
+    private volatile Map<String, Integer> folderCounts = Collections.emptyMap();
     private final Map<String, JSONObject> lyricsCache = Collections.synchronizedMap(new LinkedHashMap<String, JSONObject>(64, 0.75f, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, JSONObject> e) { return size() > 64; }
     });
@@ -51,7 +54,7 @@ public class Library {
                 MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.TRACK, MediaStore.Audio.Media.YEAR, MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.DATE_MODIFIED, MediaStore.Audio.Media.MIME_TYPE, MediaStore.Audio.Media.SIZE,
-                "album_artist", MediaStore.Audio.Media.DATA));
+                "album_artist", MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.RELATIVE_PATH));
         boolean hasGenre = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
         if (hasGenre) proj.add(MediaStore.Audio.Media.GENRE);
 
@@ -59,6 +62,8 @@ public class Library {
         Map<String, Track> ids = new HashMap<>();
         Map<Long, Track> byMedia = new HashMap<>();
         Map<String, Track> byPath = new HashMap<>();
+        Map<String, Integer> folders = new TreeMap<>();
+        FolderFilter filter = FolderFilter.load(db);
         try (Cursor c = ctx.getContentResolver().query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj.toArray(new String[0]),
                 MediaStore.Audio.Media.IS_MUSIC + " != 0", null, null)) {
             if (c != null) while (c.moveToNext()) {
@@ -79,8 +84,11 @@ public class Library {
                 t.size = c.getLong(11);
                 t.albumArtist = cleanArtist(c.getString(12));
                 String path = c.getString(13);
-                if (hasGenre) t.genre = nz(c.getString(14));
+                String folder = FolderFilter.norm(c.getString(14));
+                if (hasGenre) t.genre = nz(c.getString(15));
                 if (t.duration < 1000) continue;
+                folders.merge(folder, 1, Integer::sum);
+                if (!filter.includes(folder)) continue;
                 t.id = keyOf(t);
                 Track kept = ids.get(t.id); // 같은 곡이 두 번 들어 있으면 하나만
                 if (kept == null) { ids.put(t.id, t); list.add(t); kept = t; }
@@ -103,7 +111,7 @@ public class Library {
 
         Map<String, Track> rep = new HashMap<>();
         for (Track t : list) if (!rep.containsKey(t.albumKey)) rep.put(t.albumKey, t);
-        tracks = list; byId = ids; albumRep = rep; scanned = true;
+        tracks = list; byId = ids; albumRep = rep; folderCounts = folders; scanned = true;
         Log.i(TAG, "scanned " + list.size() + " tracks (" + fresh.size() + " new) in " + (System.currentTimeMillis() - t0) + "ms");
     }
 
@@ -123,6 +131,23 @@ public class Library {
             for (int i = 0; i < 8; i++) sb.append(String.format(Locale.ROOT, "%02x", h[i]));
             return sb.toString();
         } catch (Exception e) { return Integer.toHexString(raw.hashCode()); }
+    }
+
+    /** 설정 화면의 폴더 목록: 폴더마다 곡 수와 지금 꺼져 있는지 */
+    public String foldersJson() throws JSONException {
+        FolderFilter f = FolderFilter.load(db);
+        JSONArray arr = new JSONArray(), off = new JSONArray();
+        for (Map.Entry<String, Integer> e : folderCounts.entrySet()) {
+            arr.put(new JSONObject().put("path", e.getKey()).put("count", e.getValue()));
+            if (!f.includes(e.getKey())) off.put(e.getKey());
+        }
+        return new JSONObject().put("folders", arr).put("off", off).put("autoNew", f.autoNew).toString();
+    }
+
+    /** 폴더 설정을 저장하고 다시 읽는다. 지금 있는 폴더들을 "아는 폴더"로 남긴다 */
+    public void setFolders(List<String> off, boolean autoNew) {
+        FolderFilter.save(db, off, new ArrayList<>(folderCounts.keySet()), autoNew);
+        scan();
     }
 
     public String libraryJson() throws JSONException {

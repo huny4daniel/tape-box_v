@@ -30,6 +30,8 @@
     updatePlaylist: (id, patch) => req("PUT", "/api/playlists/" + encodeURIComponent(id), patch),
     deletePlaylist: (id) => req("DELETE", "/api/playlists/" + encodeURIComponent(id)),
     rescan: () => req("POST", "/api/rescan"),
+    folders: () => req("GET", "/api/folders"),
+    setFolders: (off, autoNew) => req("PUT", "/api/folders", { off, autoNew }),
     artUrl: (albumKey, size) => albumKey ? "/api/art/" + encodeURIComponent(albumKey) + "?s=" + (size || 300) : "",
     streamUrl: (id) => "/api/stream/" + encodeURIComponent(id),
   };

@@ -51,6 +51,10 @@
   const savePl = () => { try { localStorage.setItem("mock.pl", JSON.stringify(playlists)); } catch (e) {} };
   const ok = (v) => new Promise((r) => setTimeout(() => r(JSON.parse(JSON.stringify(v))), 40));
 
+  const mockFolders = { autoNew: true, off: ["Download/KakaoTalk/"], folders: [
+    { path: "Music/", count: 12 }, { path: "Music/Albums/A/", count: 140 }, { path: "Music/Albums/B/", count: 96 },
+    { path: "Download/", count: 8 }, { path: "Download/KakaoTalk/", count: 31 }, { path: "Recordings/", count: 54 },
+  ] };
   window.MOCK_API = {
     status: () => ok({ authorized: true, name: "dev" }),
     pair: () => ok({ ok: true }),
@@ -68,6 +72,8 @@
     updatePlaylist: (id, patch) => { const p = playlists.find((x) => x.id === id); Object.assign(p, patch, { updated: Date.now() }); savePl(); return ok(p); },
     deletePlaylist: (id) => { playlists = playlists.filter((x) => x.id !== id); savePl(); return ok({ ok: true }); },
     rescan: () => ok({ ok: true }),
+    folders: () => ok(mockFolders),
+    setFolders: (off, autoNew) => { mockFolders.off = off; mockFolders.autoNew = autoNew; return ok({ ok: true }); },
     artUrl: () => "",
     streamUrl: () => "",
   };

@@ -646,16 +646,59 @@
       let info = {}; try { info = JSON.parse(N.getServerInfo()); } catch (e) {}
       conn = `<div class="set-card"><div class="set-row"><div><h3>PC에서 접속</h3><p>같은 Wi-Fi에 있는 컴퓨터의 브라우저에서 이 폰의 컬렉션을 듣고 재생목록을 편집할 수 있어요.</p></div><button class="switch${info.enabled ? " on" : ""}" data-act="server-toggle" aria-label="PC 접속"></button></div>
         ${info.enabled ? `<div class="addr">${(info.urls || []).map((u) => `<div><span>주소</span><b>${esc(u)}</b></div>`).join("") || `<div><span>주소</span><b>Wi-Fi에 연결되어 있지 않아요</b></div>`}<div><span>PIN</span><b class="pin-code">${esc(info.pin || "")}</b></div></div>
-          <p style="margin-top:10px">PC 브라우저 주소창에 위 주소를 입력하고, 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>` : ""}</div>`;
+          <p style="margin-top:10px">PC 프로그램 「나의 테이프」를 실행하면 폰을 알아서 찾아요(브라우저 주소창에 위 주소를 넣어도 돼요). 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>` : ""}</div>`;
     } else {
       conn = `<div class="set-card"><h3>폰에 연결됨</h3><p>지금 이 화면은 폰에 저장된 컬렉션을 실시간으로 불러오고 있어요. 재생목록·메모·아끼는 곡은 폰에 바로 저장돼요.</p></div>`;
     }
     return `<div class="page"><h2 style="font-size:30px;margin:8px 0 0">설정 · 연결</h2>
       ${conn}
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
+      <div class="set-card" id="folder-card">${folderCard()}</div>
       <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 재생목록 ${L.playlists.length}개</p></div>
     </div>`;
   };
+
+  // 라이브러리 폴더: 끈 폴더의 음악은 컬렉션에 넣지 않는다 (폰 서버가 걸러 준다)
+  let FD = null; // { folders:[{path,count}], off:Set, autoNew, open:Set, dirty, saving }
+  function loadFolders() {
+    API.folders().then((r) => {
+      FD = { folders: r.folders || [], off: new Set(r.off || []), autoNew: r.autoNew !== false, open: new Set(), dirty: false, saving: false };
+      renderFolderCard();
+    }).catch(() => { const c = $("#folder-card"); if (c) c.innerHTML = `<h3>라이브러리 폴더</h3><p>폴더 목록을 불러오지 못했어요. 폰 앱을 최신 버전으로 업데이트해 주세요.</p>`; });
+  }
+  function renderFolderCard() { const c = $("#folder-card"); if (c) c.innerHTML = folderCard(); }
+  const fdUnder = (path) => FD.folders.map((f) => f.path).filter((p) => p === path || (path !== "/" && p.startsWith(path)));
+  function folderTree() {
+    const root = { kids: new Map() };
+    for (const f of FD.folders) {
+      const segs = f.path === "/" ? ["(저장공간 최상위)"] : f.path.split("/").filter(Boolean);
+      let n = root, acc = "";
+      for (const s of segs) {
+        acc = f.path === "/" ? "/" : acc + s + "/";
+        if (!n.kids.has(s)) n.kids.set(s, { name: s, path: acc, kids: new Map(), count: 0 });
+        n = n.kids.get(s); n.count += f.count;
+      }
+    }
+    return root;
+  }
+  function folderRows(n, depth) {
+    return [...n.kids.values()].sort((a, b) => a.name.localeCompare(b.name, "ko")).map((k) => {
+      const ps = fdUnder(k.path), offN = ps.filter((p) => FD.off.has(p)).length;
+      const st = offN === 0 ? "on" : offN === ps.length ? "off" : "part";
+      const kids = k.kids.size > 0, open = FD.open.has(k.path);
+      return `<div class="fd-row" style="--d:${depth}"><button class="fd-caret" data-act="fd-open" data-path="${esc(k.path)}"${kids ? "" : " disabled"}>${kids ? `<span class="chev${open ? " open" : ""}"></span>` : ""}</button>
+        <button class="fd-check ${st}" data-act="fd-check" data-path="${esc(k.path)}"><span class="box"></span><b>${esc(k.name)}</b><small>${U.num(k.count)}곡</small></button></div>${kids && open ? folderRows(k, depth + 1) : ""}`;
+    }).join("");
+  }
+  function folderCard() {
+    if (!FD) { setTimeout(loadFolders); return `<h3>라이브러리 폴더</h3><p>폴더 목록을 불러오는 중…</p>`; }
+    const total = FD.folders.reduce((s, f) => s + f.count, 0);
+    const inN = FD.folders.reduce((s, f) => s + (FD.off.has(f.path) ? 0 : f.count), 0);
+    return `<h3>라이브러리 폴더</h3><p>체크를 끈 폴더의 음악은 컬렉션에 넣지 않아요. 수집 번호와 기록은 지워지지 않아서 다시 켜면 그대로 돌아와요.</p>
+      <div class="fd-tree">${FD.folders.length ? folderRows(folderTree(), 0) : `<p>음악이 든 폴더가 없어요</p>`}</div>
+      <div class="set-row" style="margin-top:16px"><div><h3 style="font-size:15px">새로 생긴 폴더도 자동으로 넣기</h3><p>끄면 지금 켜 둔 폴더만 읽어요. 이미 있는 폴더 안에 새로 생긴 폴더는 그 폴더 설정을 따라요.</p></div><button class="switch${FD.autoNew ? " on" : ""}" data-act="fd-auto" aria-label="새 폴더 자동으로 넣기"></button></div>
+      <div class="fd-foot"><span>${U.num(total)}곡 중 <b>${U.num(inN)}곡</b>을 넣어요</span><button class="btn" data-act="fd-apply"${FD.dirty && !FD.saving ? "" : " disabled"}>${FD.saving ? "적용하는 중…" : "적용"}</button></div>`;
+  }
 
   const notFound = () => `<div class="page"><div class="empty"><b>찾을 수 없어요</b>컬렉션에서 빠진 항목일 수 있어요.</div></div>`;
 
@@ -1047,6 +1090,16 @@
         case "pl-more": { const r = a.getBoundingClientRect(); openMenu(r.left, r.bottom + 4, `<button data-m="pl-rename"><i class="ic ic-pen"></i>이름·설명 고치기</button><button data-m="pl-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="pl-delete" class="danger"><i class="ic ic-trash"></i>재생목록 지우기</button>`); return; }
         case "pl-remove": { const p = curPlaylist(); if (p && rowEl) { const items = p.items.slice(); items.splice(+rowEl.dataset.i, 1); savePlaylist(p, { items }); } return; }
         case "pl-add": { const p = curPlaylist(); if (p && !p.items.includes(id)) { savePlaylist(p, { items: p.items.concat([id]) }); toast("담았어요"); } return; }
+        case "fd-open": { const p = a.dataset.path; FD.open.has(p) ? FD.open.delete(p) : FD.open.add(p); renderFolderCard(); return; }
+        case "fd-check": { const ps = fdUnder(a.dataset.path), turnOff = ps.some((p) => !FD.off.has(p)); ps.forEach((p) => (turnOff ? FD.off.add(p) : FD.off.delete(p))); FD.dirty = true; renderFolderCard(); return; }
+        case "fd-auto": FD.autoNew = !FD.autoNew; FD.dirty = true; renderFolderCard(); return;
+        case "fd-apply": {
+          if (!FD || FD.saving) return;
+          FD.saving = true; renderFolderCard();
+          API.setFolders([...FD.off], FD.autoNew).then(() => { FD = null; toast("라이브러리 폴더를 바꿨어요"); return reloadLibrary(); })
+            .catch((err) => { if (FD) { FD.saving = false; renderFolderCard(); } toast("실패: " + err.message); });
+          return;
+        }
         case "server-toggle": { const on = !a.classList.contains("on"); try { window.NativeBridge.setServerEnabled(on); } catch (err) {} setTimeout(rerender, 400); return; }
         case "rescan": { toast("라이브러리를 다시 읽는 중…"); (window.NativeBridge ? Promise.resolve(window.NativeBridge.rescan()) : API.rescan()).then(() => setTimeout(reloadLibrary, 300)).catch((err) => toast("실패: " + err.message)); return; }
       }

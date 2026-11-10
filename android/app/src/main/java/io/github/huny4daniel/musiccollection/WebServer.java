@@ -182,6 +182,19 @@ public class WebServer extends NanoHTTPD {
             case "rescan":
                 app.rescan(null);
                 return ok();
+            case "folders": {
+                if (m == Method.GET) return json(Response.Status.OK, app.library.foldersJson());
+                if (m == Method.PUT) {
+                    JSONObject b = body(s);
+                    JSONArray a = b.optJSONArray("off");
+                    List<String> off = new ArrayList<>();
+                    if (a != null) for (int i = 0; i < a.length(); i++) off.add(a.getString(i));
+                    app.library.setFolders(off, b.optBoolean("autoNew", true)); // 다 읽은 뒤에 답한다
+                    app.emit("{\"type\":\"library\"}");
+                    return ok();
+                }
+                break;
+            }
         }
         return json(Response.Status.NOT_FOUND, "{\"error\":\"not found\"}");
     }
