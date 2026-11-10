@@ -325,7 +325,8 @@
 
 /* 오른쪽(폰은 아래 시트) 재생목록: 가사는 메모지로 보므로 탭 없이 위에 테이프 */
 .np-tabs { display: none; }
-.np-side-tape { display: block; flex: none; width: min(62%, 240px); margin: 18px auto 10px; pointer-events: none; }
+.np-side-tape { display: none; flex: none; pointer-events: none; } /* 재생목록 위 테이프는 폰 시트에서만 (PC는 옆에 큰 테이프가 있다) */
+.np-side-body { padding-top: 10px; }
 
 /* PC 오른쪽 패널의 가사 메모지: 패널을 꽉 채운다 */
 .np-memo.panel-memo { display: block; height: 100%; transform: none; border-radius: 0; box-shadow: none; animation: none; cursor: auto; }
@@ -334,7 +335,16 @@
 @media (min-width: 821px) {
   .np-meta, .np-seek, .np-ctrl { width: min(530px, 100%); }
   .np-tape-wrap.memo { width: min(530px, 100%); }
-  .np-memo { height: auto; aspect-ratio: 1.6; } /* 테이프와 같은 크기라 메모지를 열고 닫아도 아래 버튼들이 움직이지 않는다 */
+  .np-memo { height: auto; aspect-ratio: 1.6; }
+  /* PC 재생 화면 오른쪽 재생목록: 칸과 글자·앨범아트를 크게 */
+  .np-main { grid-template-columns: minmax(0, 1fr) minmax(320px, 410px); }
+  .np-side-body .queue { padding: 0 9px 22px; }
+  .np-side .queue h4 { margin: 16px 9px 7px; font-size: 15px; }
+  .np-side .q-row { gap: 12px; padding: 7px 9px; border-radius: 7px; }
+  .np-side .q-row .art { width: 47px; --s: 47px; }
+  .np-side .q-row b { font-size: 15px; }
+  .np-side .q-row span { font-size: 13.2px; margin-top: 1px; }
+  .np-side .q-row .icon-btn { width: 31px; height: 31px; } /* 테이프와 같은 크기라 메모지를 열고 닫아도 아래 버튼들이 움직이지 않는다 */
 }
 
 @media (max-width: 820px) {
@@ -410,7 +420,8 @@
   .np-tape-wrap.memo > .tape { display: none; }
   .np-tape-wrap.memo .np-memo { display: block; }
 
-  .np-side-tape { width: min(62%, 260px); margin: 14px auto 10px; }
+  .np-side-tape { display: block; width: min(62%, 260px); margin: 14px auto 10px; }
+  .np-side-body { padding-top: 0; }
 
   /* 가사 상자 (카세트 자리) */
   .np-memo { position: relative; flex: 0 1 auto; min-height: 180px; height: clamp(225px, calc(100dvh - 445px), 540px); /* 줄인 60px은 아래 여백(.memo margin-bottom)으로 넘겨 위쪽 위치는 그대로 */ cursor: pointer; animation: memo-in .32s cubic-bezier(.2,.8,.3,1); }

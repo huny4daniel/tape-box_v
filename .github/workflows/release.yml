@@ -55,9 +55,9 @@ jobs:
             -PreleaseKeystorePassword="$KS_PASSWORD" \
             -PreleaseKeyAlias="$KEY_ALIAS" \
             -PreleaseKeyPassword="$KEY_PASSWORD"
-          cp app/build/outputs/apk/release/app-release.apk "../tape-player_${TAG}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "../tape-box_${TAG}.apk"
       - name: Upload to draft release
-        run: gh release upload "$TAG" "tape-player_${TAG}.apk" --clobber
+        run: gh release upload "$TAG" "tape-box_${TAG}.apk" --clobber
 
   # PC 프로그램 exe: PyInstaller 한 파일로 묶어 초안에 첨부
   build-windows:
@@ -76,9 +76,9 @@ jobs:
       - name: Install dependencies
         run: pip install pyinstaller -r pc/requirements.txt
       - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name "tape-player_${TAG}" pc/tape_player.py
+        run: pyinstaller --noconfirm --onefile --windowed --name "tape-box_${TAG}" pc/tape_player.py
       - name: Upload to draft release
-        run: gh release upload "$TAG" "dist/tape-player_${TAG}.exe" --clobber
+        run: gh release upload "$TAG" "dist/tape-box_${TAG}.exe" --clobber
 
   # 빌드가 성공한 뒤에만: 같은 major.minor의 이전 릴리즈를 지우고 초안을 공개한다
   publish:

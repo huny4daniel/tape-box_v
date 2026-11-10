@@ -1,4 +1,4 @@
-"""나의 테이프 (PC)
+"""테이프 박스 (PC)
 
 같은 Wi-Fi에 있는 폰 앱을 찾아 그 화면을 창 하나로 띄운다.
 - 지난번에 붙었던 주소를 먼저 확인하고, 없으면 PC가 붙어 있는 네트워크를 훑어 8642 포트를 연 폰을 찾는다.
@@ -17,7 +17,7 @@ import urllib.request
 import psutil
 import webview
 
-APP_TITLE = "나의 테이프"
+APP_TITLE = "테이프 박스"
 PORT = 8642
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "tape-player")
 CONFIG = os.path.join(DATA_DIR, "config.json")
@@ -136,7 +136,7 @@ h1{font-size:22px;margin:0 0 18px;letter-spacing:-.02em}
 p{margin:0;color:#b3aba1;line-height:1.6;font-size:14px}
 small{display:block;margin-top:10px;color:#7d756c;font-size:12px}
 @keyframes spin{to{transform:rotate(360deg)}}
-</style></head><body><div class="box"><div class="reel" id="reel"></div><h1>나의 테이프</h1>
+</style></head><body><div class="box"><div class="reel" id="reel"></div><h1>테이프 박스</h1>
 <p id="msg">폰을 찾고 있어요…</p><small id="sub"></small></div>
 <script>
 function setStatus(msg, sub, busy){document.getElementById('msg').textContent=msg;document.getElementById('sub').textContent=sub||'';document.getElementById('reel').className='reel'+(busy?'':' stop');}

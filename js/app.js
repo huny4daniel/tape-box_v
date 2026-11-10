@@ -128,6 +128,7 @@
     const st = LZ[el.dataset.lazy]; if (!st) { el.remove(); return false; }
     const next = st.items.slice(st.i, st.i + (n || st.chunk)); st.i += next.length;
     el.insertAdjacentHTML("beforebegin", next.map(st.fn).join(""));
+    if (SEL.on) markPicked();
     if (st.i >= st.items.length) { if (lzObs) lzObs.unobserve(el); el.remove(); delete LZ[el.dataset.lazy]; return false; }
     return true;
   }
@@ -165,7 +166,8 @@
   function render(keepScroll) {
     if (!L.loaded) return;
     const r = route();
-    if (curRoute && curRoute !== r.hash) scrolls[curRoute] = view.scrollTop;
+    if (curRoute && curRoute !== r.hash) { scrolls[curRoute] = view.scrollTop; if (SEL.on) selEnd(); }
+    const ae = document.activeElement, focusQ = ae && ae.dataset && ae.dataset.act === "list-q" ? ae.dataset.k : null;
     const st = keepScroll ? view.scrollTop : scrolls[r.hash] || 0;
     curRoute = r.hash;
     closeMenu();
@@ -183,6 +185,8 @@
     mountLazy(st);
     view.scrollTop = st;
     onScroll();
+    if (SEL.on) markPicked();
+    if (focusQ) { const f = $(`[data-act="list-q"][data-k="${focusQ}"]`, view); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
   }
   const rerender = () => render(true);
   window.addEventListener("hashchange", () => render());
@@ -314,6 +318,53 @@
       <div class="lp-meta"><b>${esc(a.title)}</b><span>${esc((a.year ? a.year + " · " : "") + a.artist)}</span></div>
     </a>`;
   }
+  // ── 목록 화면(곡·테이프·앨범·아티스트) 위의 검색창: 제목·이름, 초성으로 걸러 낸다 ──
+  const listQ = { collection: "", playlists: "", albums: "", artists: "" };
+  const LIST_PH = { collection: "곡 목록에서 찾기", playlists: "테이프 이름이나 담긴 곡으로 찾기", albums: "앨범 찾기", artists: "아티스트 찾기" };
+  const listSearch = (k) => `<div class="list-search"><label class="search-box"><i class="ic ic-search"></i><input type="search" data-act="list-q" data-k="${k}" placeholder="${LIST_PH[k]}" value="${esc(listQ[k])}" autocomplete="off" spellcheck="false"></label></div>`;
+  function qTest(raw) {
+    const q = U.norm(raw); if (!q) return null;
+    const cho = U.isChoQuery(raw.trim());
+    return (o) => (cho ? o._cho : o._q).includes(q);
+  }
+  const noHit = (k) => `<div class="empty"><b>「${esc(listQ[k].trim())}」에 맞는 ${{ collection: "곡이", playlists: "테이프가", albums: "앨범이", artists: "아티스트가" }[k]} 없어요</b></div>`;
+  function tapeTest(raw) {
+    const q = U.norm(raw); if (!q) return null;
+    const cho = U.isChoQuery(raw.trim());
+    return (pl) => { const n = U.norm(pl.name); if ((cho ? U.chosung(n) : n).includes(q)) return true; return pl.items.some((id) => { const t = L.byId.get(id); return t && (cho ? t._cho : t._q).includes(q); }); };
+  }
+  const LIST_FILL = {
+    collection() {
+      const hit = qTest(listQ.collection);
+      let T = collectionTracks(colState.filter, colState.sort);
+      if (hit) T = T.filter(hit);
+      lists.collection = T.map((t) => t.id);
+      const box = $("#col-list"); if (!box) return;
+      // 3천 곡을 한 번에 그리면 폰에서 버벅이므로 스크롤해서 끝에 가까워질 때만 이어서 그린다
+      box.innerHTML = T.length ? `<div class="shelf">${lazyItems(T, (t) => trackCard(t), 48, 48)}</div>` : hit ? noHit("collection") : `<div class="empty"><b>해당하는 곡이 없어요</b></div>`;
+    },
+    albums() {
+      const hit = qTest(listQ.albums); let A = sortedAlbums(); if (hit) A = A.filter(hit);
+      const box = $("#lib-grid"); if (box) box.innerHTML = A.length ? `<div class="lp-grid">${lazyItems(A, lpAlbum)}</div>` : noHit("albums");
+    },
+    artists() {
+      const hit = qTest(listQ.artists); let R = sortedArtists(); if (hit) R = R.filter(hit);
+      const box = $("#lib-grid"); if (box) box.innerHTML = R.length ? `<div class="shelf artist-grid">${lazyItems(R, artistCard, 45, 45)}</div>` : noHit("artists");
+    },
+    playlists() {
+      const hit = tapeTest(listQ.playlists); let T = sortedTapes(); if (hit) T = T.filter(hit);
+      const box = $("#lib-grid"); if (!box) return;
+      box.innerHTML = hit && !T.length ? noHit("playlists") : `<div class="tape-grid">${hit ? "" : `<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>`}${lazyItems(T, tapeItem, 16, 10)}</div>`;
+    },
+  };
+  // 검색어를 바꿀 때는 목록 부분만 다시 그린다 (입력칸 포커스가 그대로 남게)
+  const refillList = U.debounce((k) => {
+    if (!LIST_FILL[k] || !$(`[data-act="list-q"][data-k="${k}"]`, view)) return;
+    for (const key in LZ) delete LZ[key];
+    LIST_FILL[k](); mountLazy(0);
+    if (SEL.on) syncSel();
+  }, 140);
+
   const FILTERS = [["all", "전체"], ["fav", "아끼는 곡"], ["unheard", "아직 안 들은 곡"], ["memo", "메모 있는 곡"], ["heavy", "단골 이상"]];
   const SORTS = [["new", "최근 수집순"], ["old", "처음 수집순"], ["title", "제목순"], ["artist", "아티스트순"], ["plays", "많이 들은 순"], ["year", "발매일순"]];
   const ko = new Intl.Collator("ko");
@@ -333,10 +384,8 @@
   pages.collection = (arg) => {
     // 필터 칩은 없앴다. 주소로 들어온 필터(#/collection/unheard 등)만 쓰고, 그냥 들어오면 전체
     colState.filter = arg && FILTERS.some((f) => f[0] === arg) ? arg : "all";
-    const T = collectionTracks(colState.filter, colState.sort);
     const first = L.tracks.reduce((m, t) => Math.min(m, t.addedAt || Infinity), Infinity);
     $("#topbar-title").textContent = "곡 목록";
-    lists.collection = T.map((t) => t.id);
     return `<div class="page">
       <div class="hero"><div class="hero-text">
         <h1>곡 목록</h1>
@@ -345,20 +394,15 @@
       <div class="actions">
         <button class="play-fab" data-act="list-play" data-list="collection" title="재생"><i class="ic ic-play"></i></button>
         <button class="icon-btn${P.shuffle ? " on" : ""}" data-act="list-shuffle" data-list="collection" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
+        ${selBtn("collection")}
         <span style="flex:1"></span>
         <label class="select"><select data-act="col-sort">${SORTS.map(([k, n]) => `<option value="${k}"${k === colState.sort ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       </div>
+      ${listSearch("collection")}
       <div data-list="collection" id="col-list"></div>
-      ${T.length ? "" : `<div class="empty"><b>해당하는 곡이 없어요</b></div>`}
     </div>`;
   };
-  pages.collection.after = () => {
-    // 3천 곡을 한 번에 그리면 폰에서 버벅이므로 한 그리드에 조금씩 이어 붙인다
-    const T = lists.collection.map((id) => L.byId.get(id));
-    const box = $("#col-list"); if (!box) return;
-    // 스크롤해서 끝에 가까워질 때만 이어서 그린다 (미리 다 그리면 스크롤하는 동안 계속 끊긴다)
-    box.innerHTML = `<div class="shelf">${lazyItems(T, (t) => trackCard(t), 48, 48)}</div>`;
-  };
+  pages.collection.after = () => LIST_FILL.collection();
 
   // ───────── 페이지: 아끼는 곡 / 연대 ─────────
   pages.liked = () => {
@@ -367,7 +411,7 @@
     setTint("350 40% 30%");
     return `<div class="page">
       <div class="hero">${heroTape(likedPl(), "liked")}<div class="hero-text"><div class="hero-kicker">재생목록</div><h1>아끼는 곡</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${U.fmtLong(T.reduce((s, t) => s + t.duration, 0))}</span></div></div></div>
-      <div class="actions"><button class="play-fab" data-act="list-play" data-list="liked"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="liked" title="셔플 재생"><i class="ic ic-shuffle"></i></button></div>
+      <div class="actions"><button class="play-fab" data-act="list-play" data-list="liked"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="liked" title="셔플 재생"><i class="ic ic-shuffle"></i></button>${T.length ? selBtn("liked") : ""}</div>
       ${T.length ? trackList("liked", T, "index") : `<div class="empty"><b>아직 아끼는 곡이 없어요</b>곡 옆의 하트를 눌러 담아 보세요.</div>`}
     </div>`;
   };
@@ -377,8 +421,8 @@
     $("#topbar-title").textContent = d + "년대";
     setTint(U.hue(String(d)) + " 30% 28%");
     return `<div class="page">
-      <div class="hero">${collectionTape("year-" + d, d + "년대", T, "year")}<div class="hero-text"><div class="hero-kicker">시대별 컬렉션</div><h1>${d}년대</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${d}~${d + 9}년에 나온 소장곡</span></div></div></div>
-      <div class="actions"><button class="play-fab" data-act="list-play" data-list="year"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="year"><i class="ic ic-shuffle"></i></button></div>
+      <div class="hero">${collectionTape("year-" + d, d + "년대", T, "year")}<div class="hero-text"><div class="hero-kicker">시대별 컬렉션</div><h1>${d}년대</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${d}~${d + 9}년에 나온 테이프 박스 속 곡</span></div></div></div>
+      <div class="actions"><button class="play-fab" data-act="list-play" data-list="year"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="year"><i class="ic ic-shuffle"></i></button>${selBtn("year")}</div>
       ${trackList("year", T, "collection")}
     </div>`;
   };
@@ -407,17 +451,21 @@
     return `<div class="page">
       <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">앨범</h2><p>${U.num(A.length)}장</p></div>
       <label class="select"><select data-act="lib-sort" data-k="albums">${[["recent", "최근 수집순"], ["name", "이름순"], ["artist", "아티스트순"], ["year", "발매연도순"], ["plays", "많이 들은 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
-      <div class="lp-grid">${lazyItems(A, lpAlbum)}</div></div>`;
+      ${listSearch("albums")}
+      <div id="lib-grid"></div></div>`;
   };
+  pages.albums.after = () => LIST_FILL.albums();
   pages.artists = () => {
     const R = sortedArtists();
     const s = libSort.artists;
     $("#topbar-title").textContent = "아티스트";
     return `<div class="page">
       <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">아티스트</h2><p>${U.num(R.length)}명</p></div>
-      <label class="select"><select data-act="lib-sort" data-k="artists">${[["count", "소장곡 많은 순"], ["name", "이름순"], ["plays", "많이 들은 순"], ["first", "처음 만난 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
-      <div class="shelf artist-grid">${lazyItems(R, artistCard, 45, 45)}</div></div>`;
+      <label class="select"><select data-act="lib-sort" data-k="artists">${[["count", "테이프 박스 속 곡 많은 순"], ["name", "이름순"], ["plays", "많이 들은 순"], ["first", "처음 만난 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
+      ${listSearch("artists")}
+      <div id="lib-grid"></div></div>`;
   };
+  pages.artists.after = () => LIST_FILL.artists();
   pages.album = (key) => {
     const a = L.albums.get(key);
     if (!a) return notFound();
@@ -434,6 +482,7 @@
       <div class="actions">
         <button class="play-fab" data-act="list-play" data-list="album"><i class="ic ic-play"></i></button>
         <button class="icon-btn" data-act="list-shuffle" data-list="album" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
+        ${selBtn("album")}
         <span class="dimmer" style="font-size:13px">${U.fmtDateKo(a.addedAt)} 컬렉션에 들어옴 · 모두 ${U.num(plays)}번 재생</span>
       </div>
       ${trackList("album", T, "album")}
@@ -458,6 +507,7 @@
       <div class="actions">
         <button class="play-fab" data-act="list-play" data-list="artist-all"><i class="ic ic-play"></i></button>
         <button class="icon-btn" data-act="list-shuffle" data-list="artist-all" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
+        ${selBtn("artist-all")}
         <span class="dimmer" style="font-size:13px">${U.fmtDateKo(r.first)}, 「${esc(firstT.title)}」로 처음 만났어요</span>
       </div>
       ${hot.length ? section("내가 많이 들은 곡", null, trackList("artist-hot", hot, "index")) : ""}
@@ -500,7 +550,7 @@
         <div class="hint"><span>${inLists.length ? "담긴 재생목록: " + inLists.map((p) => `<a href="#/playlist/${encodeURIComponent(p.id)}" style="color:var(--text-2)">${esc(p.name)}</a>`).join(", ") : ""}</span><span id="memo-state"></span></div>
       </div>
       <div class="lyr-box"><h3>가사</h3><pre id="track-lyrics" class="dimmer">불러오는 중…</pre></div>
-      ${albumT.length > 1 ? section("같은 앨범의 소장곡", t.album, trackList("track-album", albumT, "album")) : ""}
+      ${albumT.length > 1 ? section("테이프 박스 속 같은 앨범 곡", t.album, trackList("track-album", albumT, "album")) : ""}
       <p class="dimmer" style="font-size:12px;margin-top:30px">${t.genre ? esc(t.genre) + " · " : ""}${t.track ? (t.disc > 1 ? t.disc + "-" : "") + t.track + "번 트랙" : ""}</p>
     </div>`;
   };
@@ -531,6 +581,7 @@
         <button class="play-fab" data-act="list-play" data-list="playlist"><i class="ic ic-play"></i></button>
         <button class="icon-btn" data-act="list-shuffle" data-list="playlist" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
         <button class="icon-btn" data-act="pl-more" title="재생목록 메뉴"><i class="ic ic-more"></i></button>
+        ${T.length && !plEdit ? selBtn("playlist") : ""}
         <span style="flex:1"></span>
         ${T.length ? `<button class="btn${plEdit ? " primary" : ""}" data-act="pl-edit"><i class="ic ic-pen"></i>${plEdit ? "편집 끝내기" : "순서 편집"}</button>` : ""}
       </div>
@@ -579,6 +630,36 @@
     box.addEventListener("pointerup", end); box.addEventListener("pointercancel", end);
   }
 
+  // 재생목록(대기열) 줄: 오른쪽 손잡이(가로줄 세 개)를 잡고 끌어 순서를 바꾼다
+  document.addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".q-grip"); if (!h) return;
+    const rowEl = h.closest(".q-row[data-q]"), box = rowEl && rowEl.closest(".queue"); if (!box) return;
+    e.preventDefault(); e.stopPropagation();
+    const scroller = box.closest(".np-side-body, #panel-body");
+    const from = +rowEl.dataset.q; let to = from;
+    rowEl.classList.add("dragging");
+    try { h.setPointerCapture(e.pointerId); } catch (err) {}
+    const clear = () => $$(".q-row", box).forEach((r) => r.classList.remove("drop-before", "drop-after"));
+    const mv = (ev) => {
+      clear();
+      const over = document.elementFromPoint(ev.clientX, ev.clientY);
+      const r = over && over.closest(".q-row[data-q]");
+      if (r && box.contains(r) && !r.classList.contains("now")) {
+        const rect = r.getBoundingClientRect(), after = ev.clientY > rect.top + rect.height / 2;
+        r.classList.add(after ? "drop-after" : "drop-before");
+        to = +r.dataset.q + (after ? 1 : 0); if (to > from) to--;
+      }
+      if (scroller) { const sr = scroller.getBoundingClientRect(); if (ev.clientY < sr.top + 50) scroller.scrollTop -= 10; else if (ev.clientY > sr.bottom - 50) scroller.scrollTop += 10; }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      clear(); rowEl.classList.remove("dragging");
+      U._suppressClick = Date.now(); // 놓은 자리의 줄이 눌린 것으로 처리되지 않게
+      if (to !== from && to > P.index) P.move(from, to);
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  }, true);
+
   function savePlaylist(p, patch, quiet) {
     Object.assign(p, patch, { updated: Date.now() });
     renderSidebar();
@@ -616,7 +697,7 @@
       $("#search-browse").hidden = !!r;
       const box = $("#search-res");
       if (!r) { box.innerHTML = ""; return; }
-      if (!r.tracks.length && !r.artists.length && !r.albums.length) { box.innerHTML = `<div class="empty"><b>「${esc(inp.value)}」에 맞는 소장곡이 없어요</b>철자를 확인하거나 다른 말로 찾아보세요.</div>`; return; }
+      if (!r.tracks.length && !r.artists.length && !r.albums.length) { box.innerHTML = `<div class="empty"><b>테이프 박스에 「${esc(inp.value)}」에 맞는 곡이 없어요</b>철자를 확인하거나 다른 말로 찾아보세요.</div>`; return; }
       const topArtist = r.artists[0], topT = r.tracks[0];
       const topIsArtist = topArtist && (!topT || U.norm(topArtist.name).startsWith(U.norm(inp.value)));
       const topCard = topIsArtist
@@ -628,6 +709,7 @@
         ${r.tracks.length > 5 ? section("곡 더 보기", null, trackList("search-more", r.tracks.slice(5), "collection")) : ""}
         ${r.artists.length ? section("아티스트", null, `<div class="shelf scroll">${r.artists.map(artistCard).join("")}</div>`) : ""}
         ${r.albums.length ? section("앨범", null, `<div class="shelf scroll">${r.albums.map((a) => albumCard(a)).join("")}</div>`) : ""}`;
+      if (SEL.on) syncSel();
     };
     inp.addEventListener("input", U.debounce(run, 120));
     if (lastQuery) run();
@@ -638,7 +720,7 @@
     $("#topbar-title").textContent = g;
     setTint(U.hue(g) + " 40% 30%");
     return `<div class="page"><div class="hero">${collectionTape("genre-" + g, g, T, "genre")}<div class="hero-text"><div class="hero-kicker">장르</div><h1>${esc(g)}</h1><div class="hero-meta"><b>${T.length}곡</b></div></div></div>
-      <div class="actions"><button class="play-fab" data-act="list-play" data-list="genre"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="genre"><i class="ic ic-shuffle"></i></button></div>
+      <div class="actions"><button class="play-fab" data-act="list-play" data-list="genre"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="genre"><i class="ic ic-shuffle"></i></button>${selBtn("genre")}</div>
       ${trackList("genre", T, "collection")}</div>`;
   };
 
@@ -658,12 +740,11 @@
     $("#topbar-title").textContent = "나의 테이프";
     return `<div class="page">
       <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">나의 테이프</h2><p>재생목록 ${L.playlists.length + 1}개</p></div><button class="btn" data-act="new-playlist"><i class="ic ic-plus"></i>새 테이프</button></div>
-      ${tapeRack()}
+      ${listSearch("playlists")}
+      <div id="lib-grid"></div>
     </div>`;
   };
-  function tapeRack() {
-    return `<div class="tape-grid"><button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>${lazyItems(sortedTapes(), tapeItem, 16, 10)}</div>`;
-  }
+  pages.playlists.after = () => LIST_FILL.playlists();
   // 모음(시대별·장르) 상세 위쪽: 앨범아트 합성 대신 그 모음을 담은 카세트. 누르면 처음부터 재생
   function collectionTape(id, name, T, listName) {
     const pl = { id, name, items: T.map((t) => t.id) };
@@ -690,7 +771,7 @@
       let info = {}; try { info = JSON.parse(N.getServerInfo()); } catch (e) {}
       conn = `<div class="set-card"><div class="set-row"><div><h3>PC에서 접속</h3><p>같은 Wi-Fi에 있는 컴퓨터의 브라우저에서 이 폰의 컬렉션을 듣고 재생목록을 편집할 수 있어요.</p></div><button class="switch${info.enabled ? " on" : ""}" data-act="server-toggle" aria-label="PC 접속"></button></div>
         ${info.enabled ? `<div class="addr">${(info.urls || []).map((u) => `<div><span>주소</span><b>${esc(u)}</b></div>`).join("") || `<div><span>주소</span><b>Wi-Fi에 연결되어 있지 않아요</b></div>`}<div><span>PIN</span><b class="pin-code">${esc(info.pin || "")}</b></div></div>
-          <p style="margin-top:10px">PC 프로그램 「나의 테이프」를 실행하면 폰을 알아서 찾아요(브라우저 주소창에 위 주소를 넣어도 돼요). 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>` : ""}</div>`;
+          <p style="margin-top:10px">PC 프로그램 「테이프 박스」를 실행하면 폰을 알아서 찾아요(브라우저 주소창에 위 주소를 넣어도 돼요). 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>` : ""}</div>`;
     } else {
       conn = `<div class="set-card"><h3>폰에 연결됨</h3><p>지금 이 화면은 폰에 저장된 컬렉션을 실시간으로 불러오고 있어요. 재생목록·메모·아끼는 곡은 폰에 바로 저장돼요.</p></div>`;
     }
@@ -895,7 +976,7 @@
     if (i < 0) return `<div class="queue"><p class="dimmer" style="padding:16px">대기열이 비어 있어요</p></div>`;
     const cur = L.byId.get(q[i]);
     const up = q.slice(i + 1, i + 101);
-    const qrow = (id, k, now) => { const t = L.byId.get(id); if (!t) return ""; return `<div class="q-row${now ? " now" : ""}" data-q="${k}">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>${now ? "" : `<button class="icon-btn" data-act="q-remove" title="대기열에서 빼기"><i class="ic ic-x"></i></button>`}</div>`; };
+    const qrow = (id, k, now) => { const t = L.byId.get(id); if (!t) return ""; return `<div class="q-row${now ? " now" : ""}" data-q="${k}">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>${now ? "" : `<button class="icon-btn" data-act="q-remove" title="대기열에서 빼기"><i class="ic ic-x"></i></button><span class="q-grip" title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span>`}</div>`; };
     const ctx = P.context;
     return `<div class="queue">
       <h4>지금 재생 중</h4>${qrow(cur.id, i, true)}
@@ -1165,6 +1246,7 @@
       <button data-m="queue" data-id="${esc(id)}"><i class="ic ic-plus"></i>대기열 맨 뒤에 추가</button>
       <button data-m="addpl" data-id="${esc(id)}"><i class="ic ic-stack"></i>재생목록에 추가…</button>
       <button data-m="fav" data-id="${esc(id)}"><i class="ic ${t.fav ? "ic-heart-fill" : "ic-heart"}"></i>${t.fav ? "아끼는 곡에서 빼기" : "아끼는 곡으로"}</button>
+      ${ctx && ctx.sel ? `<button data-m="select" data-id="${esc(id)}" data-list="${esc(ctx.list || "")}"><i class="ic ic-check"></i>여러 곡 선택</button>` : ""}
       ${inPl ? `<button data-m="plremove" data-id="${esc(id)}" data-i="${ctx.i}" class="danger"><i class="ic ic-x"></i>이 재생목록에서 빼기</button>` : ""}
       <hr>
       <button data-m="go" data-href="#/track/${encodeURIComponent(id)}"><i class="ic ic-shelf"></i>곡 상세보기</button>
@@ -1179,6 +1261,7 @@
       case "queue": P.addToQueue([id]); toast("대기열에 추가했어요"); break;
       case "addpl": addToPlaylistModal([id]); break;
       case "fav": toggleFav(id); break;
+      case "select": selStart(id, b.dataset.list); break;
       case "plremove": { const p = curPlaylist(); if (p) { const items = p.items.slice(); items.splice(+b.dataset.i, 1); savePlaylist(p, { items }); } break; }
       case "go": closeFull(); location.hash = b.dataset.href; break;
       case "pl-rename": playlistModal(curPlaylist()); break;
@@ -1277,6 +1360,14 @@
   // ───────── 클릭 처리 (위임) ─────────
   document.addEventListener("click", (e) => {
     if (U.clickSuppressed()) { e.preventDefault(); e.stopPropagation(); return; }
+    // 여러 곡 선택: 선택 중에는 곡 줄·카드를 누르면 고르기만 한다. PC는 Ctrl/Shift+클릭으로 바로 시작
+    const pickEl = e.target.closest("#view .row[data-id], #view .card[data-id]");
+    if (pickEl && !pickEl.closest(".add-finder") && !e.target.closest('[data-act="fav"], [data-handle]') && (SEL.on || (!isMobile() && (e.ctrlKey || e.metaKey || e.shiftKey)))) {
+      e.preventDefault(); e.stopPropagation();
+      if (!SEL.on) { SEL.on = true; $$(".row.sel").forEach((r) => r.classList.remove("sel")); }
+      selPick(pickEl, e.shiftKey);
+      return;
+    }
     const a = e.target.closest("[data-act]");
     const rowEl = e.target.closest(".row[data-id]");
     // 재생 화면 볼륨: 바깥을 누르면 접는다
@@ -1309,7 +1400,7 @@
         case "shuffle": toast(P.toggleShuffle() ? "셔플을 켰어요" : "셔플을 껐어요"); return;
         case "repeat": { const m = P.cycleRepeat(); toast({ off: "반복을 껐어요", all: "전체 반복", one: "한 곡 반복" }[m]); renderBar(); renderFull(); return; }
         case "fav": e.preventDefault(); toggleFav(id); return;
-        case "more": { e.preventDefault(); e.stopPropagation(); const r = a.getBoundingClientRect(); const lst = a.closest("[data-list]"); trackMenu(id, r.left - 200, r.bottom + 4, lst ? { list: lst.dataset.list, i: rowEl ? +rowEl.dataset.i : -1 } : null); return; }
+        case "more": { e.preventDefault(); e.stopPropagation(); const r = a.getBoundingClientRect(); const lst = a.closest("[data-list]"); trackMenu(id, r.left - 200, r.bottom + 4, { list: lst ? lst.dataset.list : "", i: rowEl ? +rowEl.dataset.i : -1, sel: !!(rowEl && rowEl.closest("#view") && !rowEl.closest(".add-finder")) }); return; }
         case "open-full": openFull(); return;
         case "mini-queue": // 재생 화면을 열고 재생목록을 아래에서 끌어올린다 (폰)
           npSide = "queue"; if (fp.hidden) openFull(); else renderNpSide();
@@ -1338,7 +1429,18 @@
         case "col-filter": colState.filter = a.dataset.v; saveCol(); if (route().arg) location.hash = "#/collection"; else rerender(); return;
         case "new-playlist": playlistModal(null); return;
         case "pl-tape-play": { e.preventDefault(); const name = a.dataset.list; const ctx = ctxFor(name); const pl = name === "liked" ? likedPl() : curPlaylist(); if (P.current && P.context && P.context.id === ctx.id) P.toggle(); else if (pl && pl.items.length) P.playList(pl.items, 0, ctx); return; }
-        case "pl-edit": plEdit = !plEdit; rerender(); return;
+        case "pl-edit": plEdit = !plEdit; if (SEL.on) selEnd(); rerender(); return;
+        case "sel-start": selStart(null, a.dataset.list); return;
+        case "sel-cancel": selEnd(); return;
+        case "sel-all": selAll(); return;
+        case "sel-play": case "sel-shuffle": {
+          const ids = SEL.ids.slice(); if (!ids.length) { toast("곡을 골라 주세요"); return; }
+          selEnd();
+          P.playList(ids, 0, { type: "collection", name: "선택한 곡" }, { shuffle: act === "sel-shuffle", randomStart: act === "sel-shuffle" });
+          return;
+        }
+        case "sel-next": { const ids = SEL.ids.slice(); if (!ids.length) return; selEnd(); P.playNext(ids); toast(`${ids.length}곡을 다음에 재생해요`); return; }
+        case "sel-addpl": { const ids = SEL.ids.slice(); if (!ids.length) return; selEnd(); addToPlaylistModal(ids); return; }
         case "pl-more": { const r = a.getBoundingClientRect(); openMenu(r.left, r.bottom + 4, `<button data-m="pl-rename"><i class="ic ic-pen"></i>이름·설명 고치기</button><button data-m="pl-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="pl-delete" class="danger"><i class="ic ic-trash"></i>재생목록 지우기</button>`); return; }
         case "pl-remove": { const p = curPlaylist(); if (p && rowEl) { const items = p.items.slice(); items.splice(+rowEl.dataset.i, 1); savePlaylist(p, { items }); } return; }
         case "pl-add": { const p = curPlaylist(); if (p && !p.items.includes(id)) { savePlaylist(p, { items: p.items.concat([id]) }); toast("담았어요"); } return; }
@@ -1379,6 +1481,7 @@
     }
   });
   document.addEventListener("dblclick", (e) => {
+    if (SEL.on) return;
     const rowEl = e.target.closest(".row[data-id]");
     if (rowEl && !e.target.closest("button,a") && !rowEl.closest(".add-finder")) playRow(rowEl);
   });
@@ -1394,6 +1497,7 @@
     const a = e.target.closest("[data-act]"); if (!a) return;
     if (a.dataset.act === "memo") { const t = L.byId.get(a.dataset.id); t.memo = a.value; const s = $("#memo-state"); if (s) s.textContent = "저장 중…"; saveMemo(t.id, a.value); }
     if (a.dataset.act === "pl-find") findForPlaylist(a.value);
+    if (a.dataset.act === "list-q") { listQ[a.dataset.k] = a.value; refillList(a.dataset.k); }
   });
   const findForPlaylist = U.debounce((q) => {
     const box = $("#pl-find-res"); if (!box) return;
@@ -1439,7 +1543,7 @@
   U.onContext(document, ".row[data-id], .card[data-id]", (el, x, y) => {
     if (el.closest(".add-finder") || el.closest("#fullplayer")) return;
     const lst = el.closest("[data-list]");
-    trackMenu(el.dataset.id, x, y, lst ? { list: lst.dataset.list, i: +el.dataset.i } : null);
+    trackMenu(el.dataset.id, x, y, { list: lst ? lst.dataset.list : "", i: +el.dataset.i, sel: !!el.closest("#view") });
   });
 
   // 키보드 (PC)
@@ -1451,16 +1555,79 @@
     else if (e.code === "ArrowRight") P.seek(Math.min(P.dur, P.pos + 5000));
     else if (e.code === "ArrowLeft") P.seek(Math.max(0, P.pos - 5000));
     else if (e.key === "/" ) { e.preventDefault(); location.hash = "#/search"; }
-    else if (e.code === "Escape") { closeMenu(); closeModal(); closeFull(); }
+    else if (e.code === "Escape") { if (SEL.on && menu.hidden && modal.hidden && fp.hidden) { selEnd(); return; } closeMenu(); closeModal(); closeFull(); }
   });
 
   // 안드로이드 뒤로 가기: 처리했으면 true
   window.__back = () => {
     if (!menu.hidden) { closeMenu(); return true; }
-    if (!modal.hidden) { closeModal(); return true; }    if (!fp.hidden) { closeFull(); return true; }
+    if (!modal.hidden) { closeModal(); return true; }
+    if (!fp.hidden) { closeFull(); return true; }
+    if (SEL.on) { selEnd(); return true; }
     if (route().name !== "home") { history.back(); return true; }
     return false;
   };
+
+  // ───────── 여러 곡 선택 → 현재 재생목록으로 묶어 재생 ─────────
+  // ids는 고른 순서대로. 재생하면 그 순서가 그대로 지금 듣는 (임시) 재생목록이 된다
+  const SEL = { on: false, ids: [], list: "", last: null };
+  const selBtn = (list) => `<button class="icon-btn sel-btn" data-act="sel-start" data-list="${esc(list)}" title="여러 곡 선택"><i class="ic ic-check"></i></button>`;
+  function selStart(id, list) {
+    SEL.on = true; SEL.list = list || SEL.list;
+    if (id && !SEL.ids.includes(id)) { SEL.ids.push(id); SEL.last = id; }
+    $$(".row.sel").forEach((r) => r.classList.remove("sel"));
+    syncSel();
+  }
+  function selEnd() { SEL.on = false; SEL.ids = []; SEL.list = ""; SEL.last = null; syncSel(); }
+  function selPick(el, range) {
+    const id = el.dataset.id, box = el.closest("[data-list]"), name = box ? box.dataset.list : "";
+    const arr = name && lists[name];
+    if (range && SEL.last && arr && arr.includes(SEL.last) && arr.includes(id)) {
+      // Shift: 마지막으로 고른 곡부터 여기까지 목록 순서대로 모두
+      const a = arr.indexOf(SEL.last), b = arr.indexOf(id);
+      arr.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => { if (!SEL.ids.includes(x)) SEL.ids.push(x); });
+    } else {
+      const k = SEL.ids.indexOf(id);
+      if (k >= 0) SEL.ids.splice(k, 1); else SEL.ids.push(id);
+    }
+    SEL.last = id; if (name) SEL.list = name;
+    syncSel();
+  }
+  // 모두 선택: 마지막으로 고른 목록 전체 (스크롤해야 보이는 곡까지). 이미 다 골랐으면 모두 해제
+  function selScope() {
+    if (SEL.list && lists[SEL.list] && $(`#view [data-list="${CSS.escape(SEL.list)}"]`)) return lists[SEL.list];
+    const seen = []; $$("#view .row[data-id], #view .card[data-id]").forEach((el) => { if (!el.closest(".add-finder") && !seen.includes(el.dataset.id)) seen.push(el.dataset.id); });
+    return seen;
+  }
+  function selAll() {
+    const scope = selScope();
+    if (scope.length && scope.every((id) => SEL.ids.includes(id))) SEL.ids = SEL.ids.filter((id) => !scope.includes(id));
+    else scope.forEach((id) => { if (!SEL.ids.includes(id)) SEL.ids.push(id); });
+    syncSel();
+  }
+  function markPicked() {
+    const set = new Set(SEL.ids);
+    $$("#view .row[data-id], #view .card[data-id]").forEach((el) => el.classList.toggle("picked", set.has(el.dataset.id)));
+  }
+  function syncSel() {
+    document.body.classList.toggle("selecting", SEL.on);
+    markPicked();
+    const b = $("#selbar"); if (!b) return;
+    b.hidden = !SEL.on;
+    if (!SEL.on) { b.innerHTML = ""; return; }
+    const n = SEL.ids.length, scope = selScope(), all = scope.length && scope.every((id) => SEL.ids.includes(id));
+    const ms = SEL.ids.reduce((s, id) => s + ((L.byId.get(id) || {}).duration || 0), 0);
+    const dis = n ? "" : " disabled";
+    b.innerHTML = `<div class="selbar-box">
+      <button class="icon-btn" data-act="sel-cancel" title="선택 끝내기"><i class="ic ic-x"></i></button>
+      <div class="selbar-count"><b>${n ? U.num(n) + "곡 선택" : "곡을 골라 주세요"}</b>${n ? `<span>${esc(fmtTotal(ms))}</span>` : ""}</div>
+      <button class="btn ghost selbar-all" data-act="sel-all">${all ? "모두 해제" : "모두 선택"}</button>
+      <button class="icon-btn" data-act="sel-addpl" title="테이프에 담기"${dis}><i class="ic ic-stack"></i></button>
+      <button class="icon-btn" data-act="sel-next" title="다음에 재생"${dis}><i class="ic ic-queue"></i></button>
+      <button class="icon-btn" data-act="sel-shuffle" title="섞어서 재생"${dis}><i class="ic ic-shuffle"></i></button>
+      <button class="selbar-play" data-act="sel-play" title="고른 곡을 지금 재생목록으로 재생"${dis}><i class="ic ic-play"></i><span>재생</span></button>
+    </div>`;
+  }
 
   // ───────── 재생 상태 반영 ─────────
   let lastId = null;
@@ -1480,7 +1647,7 @@
     else $$("#side-playlists .tape[data-plid]").forEach((el) => { el.classList.toggle("now", isPlayingPl({ id: el.dataset.plid })); el.classList.toggle("paused", !P.playing); });
     if (changed) { renderPanel(); renderFull(); if (id) getLyrics(id); }
     else syncFullControls();
-    document.title = P.current ? `${P.current.title} · ${P.current.artist}` : "소장곡";
+    document.title = P.current ? `${P.current.title} · ${P.current.artist}` : "테이프 박스";
   }
   function onPlayed({ id }) {
     const t = L.byId.get(id); if (!t) return;
