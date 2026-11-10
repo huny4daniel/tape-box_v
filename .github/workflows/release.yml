@@ -59,7 +59,7 @@ jobs:
       - name: Upload to draft release
         run: gh release upload "$TAG" "tape-box_${TAG}.apk" --clobber
 
-  # PC 프로그램 exe: PyInstaller 한 파일로 묶어 초안에 첨부
+  # PC 프로그램: 백신 오탐을 줄이려고 부트로더를 직접 빌드하고, 폴더(onedir)로 묶어 zip으로 첨부
   build-windows:
     needs: prepare
     runs-on: windows-latest
@@ -73,12 +73,44 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      # pip 배포판의 공용 부트로더 대신 러너의 MSVC로 소스에서 컴파일한다
+      - name: Install PyInstaller with self-built bootloader
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: '1'
+        run: pip install --no-binary pyinstaller pyinstaller
       - name: Install dependencies
-        run: pip install pyinstaller -r pc/requirements.txt
-      - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name "tape-box_${TAG}" --paths pc --add-data "pc/lyricsync_worker.py:." pc/tape_player.py
+        run: pip install -r pc/requirements.txt
+      # exe 속성의 회사명·제품명·버전 정보 (태그 vX.Y.Z에서 숫자를 뽑는다)
+      - name: Write version info
+        run: |
+          IFS=. read -r MA MI PA <<< "${TAG#v}"
+          cat > version_info.txt <<EOF
+          VSVersionInfo(
+            ffi=FixedFileInfo(filevers=($MA, $MI, $PA, 0), prodvers=($MA, $MI, $PA, 0)),
+            kids=[
+              StringFileInfo([StringTable('041204B0', [
+                StringStruct('CompanyName', 'huny4daniel'),
+                StringStruct('FileDescription', 'tape-box'),
+                StringStruct('FileVersion', '${TAG#v}'),
+                StringStruct('InternalName', 'tape-box'),
+                StringStruct('LegalCopyright', 'huny4daniel'),
+                StringStruct('OriginalFilename', 'tape-box.exe'),
+                StringStruct('ProductName', 'tape-box'),
+                StringStruct('ProductVersion', '${TAG#v}')])]),
+              VarFileInfo([VarStruct('Translation', [0x0412, 1200])])
+            ]
+          )
+          EOF
+      - name: Build
+        run: >
+          pyinstaller --noconfirm --onedir --windowed --noupx
+          --name tape-box --version-file version_info.txt
+          --paths pc --add-data "pc/lyricsync_worker.py:." pc/tape_player.py
+      - name: Zip
+        working-directory: dist
+        run: 7z a -tzip "../tape-box_${TAG}.zip" tape-box
       - name: Upload to draft release
-        run: gh release upload "$TAG" "dist/tape-box_${TAG}.exe" --clobber
+        run: gh release upload "$TAG" "tape-box_${TAG}.zip" --clobber
 
   # 빌드가 성공한 뒤에만: 같은 major.minor의 이전 릴리즈를 지우고 초안을 공개한다
   publish:
