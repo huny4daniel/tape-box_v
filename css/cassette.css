@@ -1,0 +1,274 @@
+/* 카세트 테이프: 나의 테이프 목록, 재생목록에 추가 창, 재생 화면이 같은 모양을 쓴다.
+   안쪽 크기는 모두 테이프 폭 기준(cqw)이라 작게도 크게도 똑같이 보인다. */
+
+/* ───────── 테이프 ───────── */
+.tape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 18px 16px; padding: 4px 0 12px; }
+
+.tape {
+  --p: .3; /* 재생 진행도: 왼쪽 릴 → 오른쪽 릴로 테이프가 옮겨 감 */
+  position: relative; aspect-ratio: 1.6; border-radius: 1.6cqw; cursor: pointer;
+  container-type: inline-size;
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), filter .18s;
+  filter: drop-shadow(0 8px 14px rgba(0,0,0,.5));
+}
+.tape-grid .tape:hover, .tape-row .tape:hover { transform: translateY(-4px); filter: drop-shadow(0 14px 22px rgba(0,0,0,.6)); }
+
+/* 몸체: 연기색 반투명 플라스틱 + 나사 */
+.tape-shell {
+  position: absolute; inset: 0; border-radius: 1.6cqw; pointer-events: none;
+  background:
+    radial-gradient(circle at 3.2% 5%, #0b0a09 0 .7cqw, #8d877f .8cqw 1.25cqw, #3a3632 1.3cqw 1.5cqw, transparent 1.55cqw),
+    radial-gradient(circle at 96.8% 5%, #0b0a09 0 .7cqw, #8d877f .8cqw 1.25cqw, #3a3632 1.3cqw 1.5cqw, transparent 1.55cqw),
+    radial-gradient(circle at 3.2% 95%, #0b0a09 0 .7cqw, #8d877f .8cqw 1.25cqw, #3a3632 1.3cqw 1.5cqw, transparent 1.55cqw),
+    radial-gradient(circle at 96.8% 95%, #0b0a09 0 .7cqw, #8d877f .8cqw 1.25cqw, #3a3632 1.3cqw 1.5cqw, transparent 1.55cqw),
+    radial-gradient(circle at 50% 80%, #0b0a09 0 .6cqw, #8d877f .7cqw 1.1cqw, transparent 1.2cqw),
+    linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 8%),
+    linear-gradient(180deg, #3d3935 0%, #2c2926 70%, #4a4540 74%, #34302c 100%);
+  box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.14), inset 0 -.4cqw 0 rgba(0,0,0,.45), inset 0 0 0 .25cqw rgba(0,0,0,.35);
+}
+
+/* 종이 라벨 = 앨범아트를 인쇄한 것처럼 */
+.tape-label {
+  position: absolute; top: 4.4cqw; left: 5cqw; right: 5cqw; height: 43cqw;
+  border-radius: .7cqw; overflow: hidden;
+  box-shadow: 0 0 0 .2cqw rgba(0,0,0,.35);
+}
+.tape-skin { position: absolute; inset: 0; background: var(--ph, #6b5a45); }
+.tape-skin img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: saturate(.85) contrast(.94) sepia(.1); }
+.tape-skin::after { /* 종이 결과 바랜 인쇄 느낌 */
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(rgba(60,40,20,.12) .5px, transparent .6px) 0 0 / 3px 3px,
+    linear-gradient(rgba(255,244,222,.14), rgba(255,244,222,0) 40%, rgba(50,32,15,.22));
+  box-shadow: inset 0 0 3cqw rgba(40,25,10,.35);
+}
+
+/* 마스킹 테이프 + 손글씨 제목 */
+.mtape {
+  position: absolute; z-index: 2; top: 3cqw; left: 50%; max-width: 70%;
+  padding: .5cqw 4.2cqw .1cqw;
+  transform: translateX(-50%) rotate(var(--tilt, 0deg)); transform-origin: center;
+  filter: drop-shadow(0 .3cqw .35cqw rgba(0,0,0,.35));
+}
+.mtape::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(90deg, rgba(120,100,60,.06) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,0) 45%, rgba(120,95,50,.08)),
+    rgba(231,219,188,.94);
+  /* 손으로 찢은 양 끝 */
+  clip-path: polygon(0 0, 100% 0, 98.6% 14%, 100% 30%, 98.9% 47%, 100% 63%, 98.5% 80%, 100% 100%, 0 100%, 1.3% 85%, 0 67%, 1.1% 50%, 0 34%, 1.4% 17%);
+}
+.mtape span {
+  position: relative; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: "Nanum Pen Script", var(--font); font-weight: 400; font-size: 8cqw; line-height: 1.12;
+  color: #1f2d4d; letter-spacing: .01em;
+}
+/* A면 표시 자리의 하트: 라벨 스티커에 펜으로 그린 듯. 아끼면 같은 펜으로 까맣게 칠한 것처럼 */
+.tape-heart {
+  position: absolute; z-index: 3; top: 3.4cqw; right: 3.6cqw; width: 5.4cqw; aspect-ratio: 1; border-radius: 50%;
+  display: grid; place-items: center; padding: 0; cursor: pointer;
+  background: rgba(238,229,210,.92); box-shadow: 0 .2cqw .4cqw rgba(0,0,0,.3);
+  transition: transform .15s;
+}
+.tape-heart svg { width: 62%; height: 62%; fill: none; stroke: #4a3e32; stroke-width: 2.2; stroke-linejoin: round; transition: fill .2s, stroke .2s; }
+.tape-heart:hover { transform: scale(1.12) rotate(-6deg); }
+.tape-heart:hover svg { stroke: #2a2218; }
+.tape-heart.on svg { fill: #2b2620; stroke: #1a1612; } /* 펜으로 까맣게 칠한 하트 */
+.tape-heart.on { animation: heart-stamp .3s ease-out; }
+@keyframes heart-stamp { 40% { transform: scale(1.25) rotate(-8deg); } }
+
+/* 네모난 창: 반투명 플라스틱 너머로 릴과 테이프 */
+.tape-window {
+  position: absolute; z-index: 1; left: 23%; right: 23%; top: 16.5cqw; height: 15cqw;
+  border-radius: .8cqw;
+  background: linear-gradient(170deg, rgba(255,255,255,.1), rgba(255,255,255,0) 35%), linear-gradient(rgba(38,33,29,.82), rgba(18,15,13,.9));
+  box-shadow: 0 0 0 1.1cqw rgba(238,229,210,.95), 0 0 0 1.35cqw rgba(0,0,0,.22), inset 0 .5cqw 1cqw rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 3.4cqw; overflow: hidden;
+}
+.reel {
+  position: relative; z-index: 1; width: 6.2cqw; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, transparent 0 1.75cqw, #efe9df 1.8cqw 3.1cqw);
+}
+.reel::before { /* 톱니 달린 허브 */
+  content: ""; position: absolute; inset: 1.3cqw; border-radius: 50%;
+  background: repeating-conic-gradient(#efe9df 0 13deg, transparent 13deg 60deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 .75cqw, #000 .8cqw); mask: radial-gradient(circle, transparent 0 .75cqw, #000 .8cqw);
+}
+.reel.l { box-shadow: 0 0 0 calc(.5cqw + (1 - var(--p)) * 2.7cqw) #2d2119, 0 0 0 calc(.6cqw + (1 - var(--p)) * 2.7cqw) rgba(0,0,0,.35); }
+.reel.r { box-shadow: 0 0 0 calc(.5cqw + var(--p) * 2.7cqw) #2d2119, 0 0 0 calc(.6cqw + var(--p) * 2.7cqw) rgba(0,0,0,.35); }
+.tape-mag { position: absolute; left: 18%; right: 18%; bottom: 10%; height: .7cqw; background: #2d2119; }
+.tape.now .reel { animation: reel 1.8s linear infinite; }
+.tape.now.paused .reel { animation-play-state: paused; }
+@keyframes reel { to { transform: rotate(-360deg); } }
+
+/* 라벨 아래 띠: 지금(마지막) 곡 제목 + 작은 가수 이름, 오른쪽에 순서 */
+.tape-band {
+  position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; height: 8cqw;
+  display: flex; align-items: center; justify-content: space-between; gap: 2.4cqw; padding: 0 3.4cqw;
+  background: rgba(238,229,210,.95); color: #3a2f25;
+  font-family: "Courier New", ui-monospace, monospace; font-size: 3.2cqw; font-weight: 700; letter-spacing: .02em;
+  box-shadow: 0 -.55cqw 0 hsl(var(--h) 38% 42%), 0 -1.1cqw 0 rgba(238,229,210,.95), 0 -1.5cqw 0 hsl(calc(var(--h) + 28) 42% 52%);
+}
+.tb-song { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 1.6cqw; white-space: nowrap; overflow: hidden; font-family: var(--font); letter-spacing: 0; }
+.tb-song b { font-size: 3.7cqw; font-weight: 800; color: #2a2218; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+.tb-song small { font-size: 2.9cqw; font-weight: 600; color: #6b5a48; overflow: hidden; text-overflow: ellipsis; flex: 0 100 auto; min-width: 0; }
+.tb-pos { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: #6b5a48; }
+.tape.blank .tape-skin { background: repeating-linear-gradient(transparent 0 2.6cqw, rgba(70,55,35,.1) 2.6cqw 2.8cqw), #e9dfc9 !important; }
+.tape.blank .tb-song b { color: #6b5a48; }
+
+/* 새 테이프 만들기 */
+.tape-new {
+  aspect-ratio: 1.6; border-radius: 6px; border: 2px dashed rgba(255,255,255,.18); color: var(--text-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-weight: 700; font-size: 14px;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.tape-new:hover { border-color: var(--accent); color: var(--text); background: rgba(232,178,90,.05); }
+.tape-new .ic { width: 28px; height: 28px; }
+.tape-grid .tape[data-pl] { cursor: pointer; }
+
+/* 홈의 테이프 줄: 옆으로 넘겨 가며 고른다 */
+.tape-row {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 180px; gap: 14px;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding: 0 28px;
+  margin: 0 -28px; padding: 8px 28px 18px; /* 그림자·들어올림이 잘리지 않게 */
+  scrollbar-width: none;
+}
+.tape-row::-webkit-scrollbar { display: none; }
+.tape-row > * { scroll-snap-align: start; }
+
+/* 재생목록 페이지 위쪽의 테이프 */
+.hero-tape { width: 380px; flex: none; order: 2; margin-left: auto; margin-right: clamp(0px, 7vw, 120px); } /* 제목 오른쪽, 끝에서 조금 안쪽 */
+.hero-tape .tape { filter: drop-shadow(0 18px 34px rgba(0,0,0,.55)); }
+.hero:has(.hero-tape) .hero-text { padding-left: clamp(0px, 4vw, 64px); } /* 제목을 왼쪽 끝에서 조금 안쪽으로 */
+
+/* 아래 사다리꼴: 투명한 플라스틱 */
+.tape-foot {
+  position: absolute; z-index: 1; left: 21%; right: 21%; bottom: 0; height: 13cqw;
+  background: linear-gradient(rgba(90,84,77,.5), rgba(34,31,28,.85));
+  clip-path: polygon(5% 0, 95% 0, 100% 100%, 0 100%);
+  display: flex; align-items: center; justify-content: space-between; padding: 2cqw 11% 0;
+  box-shadow: inset 0 .3cqw 0 rgba(255,255,255,.1);
+}
+.tape-foot i { width: 2.8cqw; aspect-ratio: 1; border-radius: 50%; background: #0c0b0a; box-shadow: 0 0 0 .4cqw rgba(255,255,255,.07); }
+.tape-foot i:nth-child(2), .tape-foot i:nth-child(3) { width: 1.8cqw; border-radius: .3cqw; }
+
+/* 상태 */
+/* 많이 들을수록 라벨이 바래고 손때가 묻는다 */
+.tape.wear-3 .tape-skin img { filter: saturate(.78) contrast(.92) sepia(.2); }
+.tape.wear-4 .tape-skin img { filter: saturate(.7) contrast(.9) sepia(.3); }
+.tape.wear-5 .tape-skin img { filter: saturate(.62) contrast(.88) sepia(.4); }
+.tape.wear-5 .tape-skin::before {
+  content: ""; position: absolute; inset: 0; z-index: 1;
+  background: repeating-linear-gradient(117deg, transparent 0 7px, rgba(255,255,255,.07) 7px 8px), repeating-linear-gradient(32deg, transparent 0 13px, rgba(0,0,0,.08) 13px 14px);
+}
+.tape.wear-5 .mtape::before { background-color: rgba(222,204,160,.95); }
+.tape.now .tape-shell { box-shadow: 0 0 0 2px var(--accent), inset 0 .35cqw 0 rgba(255,255,255,.14), inset 0 -.4cqw 0 rgba(0,0,0,.45); }
+
+/* ───────── 재생 화면 ───────── */
+#fullplayer {
+  position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; overflow: hidden;
+  background: #0d0c0b; animation: np-in .32s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes np-in { from { transform: translateY(6%); opacity: 0; } }
+.np-bg { position: absolute; inset: -8%; background: var(--ph, #222); }
+.np-bg img { width: 100%; height: 100%; object-fit: cover; filter: blur(70px) saturate(1.4) brightness(.5); transform: scale(1.15); }
+.np-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(hsl(var(--fp, 30 25% 20%) / .45), rgba(13,12,11,.82) 70%, #0d0c0b); }
+
+.np-top { position: relative; z-index: 1; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; height: calc(64px + env(safe-area-inset-top, 0px)); padding: env(safe-area-inset-top, 0px) 20px 0; }
+.np-top .icon-btn { width: 40px; height: 40px; color: var(--text); }
+.np-top .icon-btn .ic { width: 22px; height: 22px; }
+.np-top .ctx { flex: 1; min-width: 0; text-align: center; }
+.np-top .ctx small { display: block; font-size: 11px; letter-spacing: .06em; color: var(--text-2); font-weight: 600; }
+.np-top .ctx b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.np-main { position: relative; z-index: 1; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 36px; padding: 0 36px 30px; }
+.np-deck { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 0; }
+.np-tape-wrap { width: min(660px, 100%, calc((100vh - 380px) * 1.58)); }
+.np-tape-wrap .tape { filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)); }
+.np-tape-wrap .tape.now .tape-shell { box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.14), inset 0 -.4cqw 0 rgba(0,0,0,.45); }
+.np-tape-wrap .tape:active { transform: scale(.99); }
+.np-meta, .np-seek, .np-ctrl, .np-vol { width: min(660px, 100%); }
+.np-meta { display: flex; align-items: center; gap: 14px; margin-top: 30px; }
+.np-meta > div { flex: 1; min-width: 0; }
+.np-meta b { display: block; font-size: 28px; font-weight: 900; letter-spacing: -.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-meta span { display: block; color: var(--text-2); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.np-meta span a:hover { color: var(--text); text-decoration: underline; }
+.np-meta .icon-btn { width: 44px; height: 44px; }
+.np-meta .icon-btn .ic { width: 26px; height: 26px; }
+.np-no { margin-top: 8px; font-size: 12px; color: var(--text-3); font-weight: 700; font-variant-numeric: tabular-nums; }
+.np-seek { margin-top: 18px; }
+.np-seek .times { display: flex; justify-content: space-between; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 6px; }
+.np-ctrl { display: flex; align-items: center; justify-content: center; gap: 26px; margin-top: 10px; }
+.np-ctrl .icon-btn { width: 48px; height: 48px; color: var(--text); }
+.np-ctrl .icon-btn .ic { width: 24px; height: 24px; }
+.np-ctrl .icon-btn.on { color: var(--accent); }
+.np-play { width: 66px; height: 66px; border-radius: 50%; background: var(--text); color: var(--bg); display: grid; place-items: center; transition: transform .12s; }
+.np-play:hover { transform: scale(1.05); }
+.np-play .ic { width: 28px; height: 28px; }
+.np-vol { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; color: var(--text-2); }
+.np-vol .range { flex: none; width: 160px; }
+
+.np-side { display: flex; flex-direction: column; min-height: 0; background: rgba(0,0,0,.3); border-radius: 14px; overflow: hidden; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.np-tabs { display: flex; align-items: center; gap: 6px; padding: 14px 14px 8px; }
+.np-tabs button { height: 30px; padding: 0 14px; border-radius: 99px; font-size: 13px; font-weight: 700; color: var(--text-2); background: rgba(255,255,255,.07); }
+.np-tabs button.on { background: var(--text); color: var(--bg); }
+.np-card-link { margin-left: auto; font-size: 12.5px; font-weight: 700; color: var(--text-3); }
+.np-card-link:hover { color: var(--text); }
+.np-side-body { flex: 1; min-height: 0; overflow-y: auto; }
+.np-side-body .queue { padding: 0 8px 20px; }
+.np-side-body .q-row:hover { background: rgba(255,255,255,.08); }
+.np-side-body .lyrics { padding: 12px 20px 45%; }
+.np-side-body .lyrics .ln { font-size: 20px; }
+
+/* ───────── 폰 ───────── */
+@media (max-width: 820px) {
+  .tape-grid { grid-template-columns: 1fr; gap: 14px; }
+  .tape-grid .tape:hover, .tape-row .tape:hover { transform: none; filter: drop-shadow(0 8px 14px rgba(0,0,0,.5)); }
+  .tape-row { grid-auto-columns: min(54%, 200px); gap: 10px; margin: 0 -16px; padding: 6px 16px 14px; scroll-padding: 0 16px; scroll-snap-type: x mandatory; }
+  .hero:has(.hero-tape) .hero-text { padding-left: 0; }
+
+  #fullplayer { overflow-y: auto; }
+  .np-top { position: sticky; top: 0; padding: env(safe-area-inset-top, 0px) 12px 0; height: calc(56px + env(safe-area-inset-top, 0px)); }
+  .np-main { display: block; padding: 0 20px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+  .np-deck { min-height: calc(100vh - 56px - env(safe-area-inset-top, 0px) - 20px); min-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px) - 20px); justify-content: center; padding-bottom: 12px; }
+  .np-tape-wrap { width: 100%; }
+  .np-meta { margin-top: 26px; }
+  .np-meta b { font-size: 22px; }
+  .np-ctrl { justify-content: space-between; gap: 0; }
+  .np-side { margin-top: 6px; }
+  .np-side-body { max-height: 70vh; }
+}
+
+/* ───────── 테이프에 직접 제목 쓰기 (재생목록 만들기·고치기) ───────── */
+.modal-box.wide { width: min(500px, 100%); }
+.tape-edit-wrap { margin: 0 0 16px; }
+.tape-edit-wrap .tape { cursor: default; }
+.mtape.editing { width: 66%; }
+.mtape-input {
+  position: relative; display: block; width: 100%; padding: 0; border: 0; outline: none; background: none;
+  font-family: "Nanum Pen Script", var(--font); font-size: 8cqw; line-height: 1.12; text-align: center;
+  color: #1f2d4d; caret-color: #1f2d4d;
+}
+.mtape-input::placeholder { color: rgba(31,45,77,.35); }
+.mtape.editing:focus-within::before { background-color: rgba(238,227,198,.97); }
+
+/* 재생목록에 추가: 테이프를 골라 담기 */
+.pick-tapes { overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 14px; padding: 4px 4px 8px; margin: 0 -4px; }
+.pick-tape { position: relative; cursor: pointer; outline: none; }
+.pick-tape .tape { transition: transform .15s; }
+.pick-tape:hover .tape, .pick-tape:focus-visible .tape { transform: translateY(-3px); }
+.pick-tape:focus-visible { box-shadow: 0 0 0 2px var(--accent); border-radius: 8px; }
+.pick-tape .already {
+  position: absolute; z-index: 5; right: 6px; bottom: 6px; transform: rotate(-3deg);
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.45);
+}
+.pick-tapes .tape-new { width: 100%; }
+@media (max-width: 480px) { .pick-tapes { grid-template-columns: 1fr; } }
+
+/* 띠 앞의 곡 순서 (#3) */
+.tb-no {
+  flex: none; font-style: normal; font-family: "Courier New", ui-monospace, monospace;
+  font-size: 3.2cqw; font-weight: 700; color: #8a7560; font-variant-numeric: tabular-nums; letter-spacing: 0;
+}

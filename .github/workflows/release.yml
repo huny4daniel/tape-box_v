@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  # 태그로 초안(draft) 릴리즈를 만든다. 다시 실행했을 때 이미 있으면 그대로 쓴다
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create draft release
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+
+  # 안드로이드 APK: Secrets의 키스토어로 서명해 초안에 첨부
+  build-android:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '21' # 키스토어를 만든 keytool과 같은 메이저 버전
+      - name: Restore keystore
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/release.keystore
+      # 러너에 기본 설치된 Android SDK(ANDROID_HOME)를 그대로 쓴다
+      - name: Build release APK
+        working-directory: android
+        env:
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon \
+            -PreleaseVersionName="$TAG" \
+            -PreleaseKeystorePath="$PWD/keystore/release.keystore" \
+            -PreleaseKeystorePassword="$KS_PASSWORD" \
+            -PreleaseKeyAlias="$KEY_ALIAS" \
+            -PreleaseKeyPassword="$KEY_PASSWORD"
+          cp app/build/outputs/apk/release/app-release.apk "../tape-player_${TAG}.apk"
+      - name: Upload to draft release
+        run: gh release upload "$TAG" "tape-player_${TAG}.apk" --clobber
+
+  # 빌드가 성공한 뒤에만: 같은 major.minor의 이전 릴리즈를 지우고 초안을 공개한다
+  publish:
+    needs: [prepare, build-android]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Delete previous releases of same major.minor
+        run: |
+          prefix="$(echo "$TAG" | cut -d. -f1-2)."
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -F "$prefix" | grep -vxF "$TAG" \
+            | while read -r t; do gh release delete "$t" --yes; done || true
+      - name: Publish release
+        run: gh release edit "$TAG" --draft=false --latest

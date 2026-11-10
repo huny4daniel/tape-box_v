@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d0c0b">
+<title>소장곡</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/cassette.css">
+<link rel="stylesheet" href="css/lp.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><span class="brand-mark"></span>소장곡</div>
+    <nav class="side-nav">
+      <a href="#/" data-nav="home"><i class="ic ic-home"></i>홈</a>
+      <a href="#/search" data-nav="search"><i class="ic ic-search"></i>검색</a>
+      <a href="#/collection" data-nav="collection"><i class="ic ic-shelf"></i>곡 목록</a>
+      <a href="#/albums" data-nav="albums"><i class="ic ic-disc"></i>앨범</a>
+      <a href="#/artists" data-nav="artists"><i class="ic ic-person"></i>아티스트</a>
+      <a href="#/playlists" data-nav="playlists"><i class="ic ic-tape"></i>나의 테이프</a>
+    </nav>
+    <div class="side-lib">
+      <div class="side-lib-head">
+        <span>라이브러리</span>
+        <button class="icon-btn" data-act="new-playlist" title="새 재생목록"><i class="ic ic-plus"></i></button>
+      </div>
+      <div id="side-playlists" class="side-playlists"></div>
+    </div>
+    <a href="#/settings" class="side-settings" data-nav="settings"><i class="ic ic-gear"></i>설정 · 연결</a>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <div class="topbar-nav">
+        <button class="round-btn" data-act="back" title="뒤로"><i class="ic ic-left"></i></button>
+      </div>
+      <div id="topbar-title"></div>
+      <div id="topbar-extra"></div>
+    </header>
+    <div id="view"></div>
+  </main>
+
+  <aside id="panel">
+    <div class="panel-tabs">
+      <button data-panel="lyrics" class="on">가사</button>
+      <button data-panel="queue">재생 대기열</button>
+      <button class="icon-btn panel-close" data-act="close-panel" title="닫기"><i class="ic ic-x"></i></button>
+    </div>
+    <div id="panel-body"></div>
+  </aside>
+
+  <footer id="playerbar"></footer>
+
+  <nav id="tabbar">
+    <a href="#/" data-nav="home"><i class="ic ic-home"></i><span>홈</span></a>
+    <a href="#/search" data-nav="search"><i class="ic ic-search"></i><span>검색</span></a>
+    <a href="#/collection" data-nav="collection"><i class="ic ic-shelf"></i><span>곡 목록</span></a>
+    <a href="#/library" data-nav="library"><i class="ic ic-stack"></i><span>라이브러리</span></a>
+  </nav>
+</div>
+
+<div id="fullplayer" hidden></div>
+<div id="menu" hidden></div>
+<div id="modal" hidden></div>
+<div id="toast"></div>
+<div id="gate" hidden></div>
+
+<script src="js/util.js"></script>
+<script src="js/api.js"></script>
+<script src="js/player.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
