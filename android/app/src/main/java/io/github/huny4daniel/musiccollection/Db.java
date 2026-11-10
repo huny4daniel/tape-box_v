@@ -28,7 +28,7 @@ public class Db extends SQLiteOpenHelper {
         public String memo;
     }
 
-    public Db(Context c) { super(c, "collection.db", null, 1); }
+    public Db(Context c) { super(c, "collection.db", null, 2); }
 
     @Override public void onConfigure(SQLiteDatabase db) { db.enableWriteAheadLogging(); }
 
@@ -39,9 +39,17 @@ public class Db extends SQLiteOpenHelper {
         db.execSQL("CREATE UNIQUE INDEX meta_no ON meta(no)");
         db.execSQL("CREATE TABLE playlists (id TEXT PRIMARY KEY, name TEXT, descr TEXT, created INTEGER, updated INTEGER, items TEXT)");
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)");
+        createLyrics(db);
     }
 
-    @Override public void onUpgrade(SQLiteDatabase db, int o, int n) {}
+    @Override public void onUpgrade(SQLiteDatabase db, int o, int n) {
+        if (o < 2) createLyrics(db);
+    }
+
+    /** PC가 음원에 맞춰 만들어 보낸 시간 가사(LRC). 파일 태그보다 먼저 쓴다 */
+    private static void createLyrics(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS lyrics (key TEXT PRIMARY KEY, lrc TEXT NOT NULL, source TEXT, updated INTEGER)");
+    }
 
     // ───── 곡 기록 ─────
     public synchronized Map<String, Meta> allMeta() {
@@ -163,6 +171,24 @@ public class Db extends SQLiteOpenHelper {
         pl = updatePlaylist(pl.getString("id"), new JSONObject().put("name", name).put("items", arr));
         put(k, r.put("at", pl.getLong("updated")).toString());
         return true;
+    }
+
+    // ───── 만든 가사 ─────
+    /** [lrc, source] 또는 null */
+    public synchronized String[] lyrics(String key) {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT lrc, source FROM lyrics WHERE key = ?", new String[]{key})) {
+            return c.moveToFirst() ? new String[]{c.getString(0), c.getString(1)} : null;
+        }
+    }
+
+    public synchronized void setLyrics(String key, String lrc, String source) {
+        ContentValues v = new ContentValues();
+        v.put("key", key); v.put("lrc", lrc); v.put("source", source); v.put("updated", System.currentTimeMillis());
+        getWritableDatabase().insertWithOnConflict("lyrics", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    public synchronized void deleteLyrics(String key) {
+        getWritableDatabase().delete("lyrics", "key = ?", new String[]{key});
     }
 
     // ───── 설정 ─────

@@ -153,8 +153,26 @@ public class WebServer extends NanoHTTPD {
             }
             case "stream":
                 return stream(s, arg);
-            case "lyrics":
+            case "lyrics": {
+                if (m == Method.PUT) { // PC가 음원에 맞춰 만든 시간 가사를 저장한다
+                    if (app.library.get(arg) == null) return json(Response.Status.NOT_FOUND, "{\"error\":\"no track\"}");
+                    JSONObject b = body(s);
+                    String lrc = b.optString("lrc", "");
+                    List<Id3Lyrics.Line> lines = Id3Lyrics.parseLrc(lrc);
+                    if (lines == null || lines.isEmpty()) return json(Response.Status.BAD_REQUEST, "{\"error\":\"not lrc\"}");
+                    app.db.setLyrics(arg, lrc, b.optString("source", "made"));
+                    app.library.forgetLyrics(arg);
+                    return ok();
+                }
+                if (m == Method.DELETE) { app.db.deleteLyrics(arg); app.library.forgetLyrics(arg); return ok(); }
                 return json(Response.Status.OK, app.library.lyrics(arg).toString());
+            }
+            case "token": { // PC 프로그램의 가사 생성기가 쓸 토큰. 짝 맺은 창의 토큰을 그대로 돌려줘 토큰이 늘지 않게 한다
+                if (m != Method.POST) break;
+                String tok = isLocal(s) ? null : s.getCookies().read(COOKIE);
+                if (tok == null) tok = newToken();
+                return json(Response.Status.OK, new JSONObject().put("token", tok).toString());
+            }
             case "plays": {
                 JSONObject b = body(s);
                 String id = b.getString("id");

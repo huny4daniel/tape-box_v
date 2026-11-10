@@ -10,14 +10,16 @@
   - `js/app.js`: 화면 전체 (홈, 나의 컬렉션, 앨범·아티스트, 소장품 카드, 재생목록, 검색, 가사·대기열)
   - `js/mock.js`: 폰 없이 화면을 확인할 때 쓰는 가짜 라이브러리 (`mock.html`)
 - `pc/tape_player.py`: PC 프로그램 「테이프 박스」 (pywebview). 같은 Wi-Fi에서 폰을 찾아 폰이 내려주는 화면을 창으로 띄운다
+  - `pc/lyricsync.py`: 싱크 가사 생성기의 설치·실행 관리. 고른 폴더 아래 `TapeBox-LyricSync`에 uv로 Python·PyTorch·모델을 따로 받는다 (exe에는 넣지 않음)
+  - `pc/lyricsync_worker.py`: 그 환경에서 도는 생성기. 폰에서 시간 정보 없는 가사의 곡을 받아 보컬 분리(demucs) 후 Whisper(stable-ts)로 줄마다 시각을 맞춰 LRC로 폰에 저장하고, 사본을 `made/`에 남긴다
   - 지난번 주소를 먼저 확인하고, 없으면 PC의 사설 네트워크(가상 어댑터 제외)를 PC 주소와 가까운 순서로 훑어 8642 포트를 연 폰을 찾는다
   - 창의 쿠키를 `%APPDATA%\tape-player\webview`에 남겨 PIN은 처음 한 번만 넣는다
 - `android/`: 폰 앱 (Java)
   - `Library`: MediaStore 스캔. 곡 id는 제목·아티스트·앨범·길이로 만든 고정 키
   - `FolderFilter`: 설정에서 끈 폴더(RELATIVE_PATH)는 스캔에서 뺀다. 처음 보는 폴더는 가장 가까운 상위 폴더 설정을, 없으면 「새 폴더 자동으로 넣기」를 따른다
   - `PlaylistImport`: 스캔할 때 다른 플레이어의 재생목록(MediaStore 재생목록, `.m3u`/`.m3u8`, 설정에서 고른 폴더의 삼성뮤직 `.smpl`)을 가져온다. 이 앱에서 고치거나 지우기 전까지는 원본 변경을 따라간다
-  - `Db`: 수집 번호·재생 기록·아끼는 곡·메모·재생목록 (SQLite). 컬렉션에서 빠진 곡의 기록도 남긴다
-  - `Id3Lyrics`: ID3 태그의 SYLT/USLT 가사, USLT 안의 `[mm:ss.xx]` 시간 가사
+  - `Db`: 수집 번호·재생 기록·아끼는 곡·메모·재생목록·PC가 만든 시간 가사 (SQLite). 컬렉션에서 빠진 곡의 기록도 남긴다
+  - `Id3Lyrics`: ID3 태그의 SYLT/USLT 가사, USLT 안의 `[mm:ss.xx]` 시간 가사. PC가 만든 시간 가사(Db)가 있으면 그쪽을 먼저 쓴다
   - `ArtCache`: mp3에 든 앨범아트를 크기별 JPEG로 캐시
   - `WebServer`: 내장 서버 (포트 8642). 폰 밖의 요청은 「PC에서 접속」이 켜져 있고 PIN으로 짝을 맺은 브라우저만 받는다
   - `PlaybackService`: Media3 재생, 들은 시간·재생 횟수 기록

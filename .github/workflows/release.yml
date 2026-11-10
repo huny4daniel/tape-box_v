@@ -76,7 +76,7 @@ jobs:
       - name: Install dependencies
         run: pip install pyinstaller -r pc/requirements.txt
       - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name "tape-box_${TAG}" pc/tape_player.py
+        run: pyinstaller --noconfirm --onefile --windowed --name "tape-box_${TAG}" --paths pc --add-data "pc/lyricsync_worker.py:." pc/tape_player.py
       - name: Upload to draft release
         run: gh release upload "$TAG" "dist/tape-box_${TAG}.exe" --clobber
 

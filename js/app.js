@@ -780,6 +780,7 @@
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
       ${N ? playlistDirCard(N) : ""}
       <div class="set-card" id="folder-card">${folderCard()}</div>
+      ${N ? "" : lsSlot()}
       <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 재생목록 ${L.playlists.length}개</p></div>
     </div>`;
   };
@@ -832,6 +833,73 @@
       <div class="fd-tree">${FD.folders.length ? folderRows(folderTree(), 0) : `<p>음악이 든 폴더가 없어요</p>`}</div>
       <div class="set-row" style="margin-top:16px"><div><h3 style="font-size:15px">새로 생긴 폴더도 자동으로 넣기</h3><p>끄면 지금 켜 둔 폴더만 읽어요. 이미 있는 폴더 안에 새로 생긴 폴더는 그 폴더 설정을 따라요.</p></div><button class="switch${FD.autoNew ? " on" : ""}" data-act="fd-auto" aria-label="새 폴더 자동으로 넣기"></button></div>
       <div class="fd-foot"><span>${U.num(total)}곡 중 <b>${U.num(inN)}곡</b>을 넣어요</span><button class="btn" data-act="fd-apply"${FD.dirty && !FD.saving ? "" : " disabled"}>${FD.saving ? "적용하는 중…" : "적용"}</button></div>`;
+  }
+
+  // 싱크 가사 생성기: PC 프로그램 창(pywebview)에서만 보인다. 설치와 실행은 PC 쪽(pc/lyricsync.py)이 맡는다
+  const PWA = () => (window.pywebview && window.pywebview.api && window.pywebview.api.ls_state ? window.pywebview.api : null);
+  let LS = null, lsTimer = 0, lsShowChecks = false, lsHtml = "";
+  function lsSlot() { lsHtml = ""; setTimeout(lsPoll); return `<div class="set-card" id="ls-card" hidden></div>`; }
+  window.addEventListener("pywebviewready", () => lsPoll());
+  function lsPoll() {
+    clearTimeout(lsTimer);
+    const pw = PWA();
+    if (!$("#ls-card") || !pw) return;
+    pw.ls_state().then((st) => { LS = st; renderLsCard(); }).catch(() => {})
+      .then(() => { if ($("#ls-card")) lsTimer = setTimeout(lsPoll, LS && LS.phase !== "idle" ? 1000 : 5000); });
+  }
+  function renderLsCard() {
+    const c = $("#ls-card"); if (!c || !LS) return;
+    const html = lsCard(LS);
+    c.hidden = false;
+    if (html !== lsHtml) { c.innerHTML = html; lsHtml = html; }
+  }
+  function lsCard(st) {
+    const r = st.run;
+    const rows = [`<div><span>설치 위치</span><b style="font-size:14px">${st.home ? esc(st.home) : "아직 고르지 않았어요"}</b></div>`];
+    if (st.parent && st.freeGb != null) rows.push(`<div><span>남은 공간</span><b style="font-size:14px">${st.freeGb}GB</b></div>`);
+    if (st.installed) rows.push(`<div><span>계산 장치</span><b style="font-size:14px">${st.device === "cuda" ? esc(st.gpu || "NVIDIA GPU") : "CPU (GPU보다 많이 느려요)"}</b></div>`);
+    let body = "", btns = "";
+    if (st.phase === "installing" || st.phase === "removing") {
+      body = `<p class="ls-step">${esc(st.step)}</p>${st.log.length ? `<pre class="ls-log">${esc(st.log.slice(-3).join("\n"))}</pre>` : ""}`;
+      btns = st.phase === "installing" ? `<button class="btn ghost" data-act="ls-stop">멈춤</button>` : "";
+    } else if (!st.installed) {
+      body = `<p class="ls-note">처음 한 번 실행 환경과 모델을 받아요. 설치하는 동안 ${st.needGb}GB, 끝나면 7GB 정도를 써요. NVIDIA 그래픽카드가 있으면 곡당 20초 안팎, 없으면 몇 분씩 걸려요.</p>`;
+      btns = `<button class="btn ghost" data-act="ls-pick">${st.parent ? "위치 바꾸기" : "위치 고르기"}</button><button class="btn" data-act="ls-install"${st.parent ? "" : " disabled"}>설치</button>`;
+    } else if (st.phase === "running") {
+      const pct = r && r.total ? Math.round((r.i / r.total) * 100) : 0;
+      const avg = r && r.secs.length ? Math.round(r.secs.reduce((a, b) => a + b, 0) / r.secs.length) : 0;
+      body = `<div class="ls-bar"><i style="width:${pct}%"></i></div>
+        <p class="ls-step">${r && r.total ? `${U.num(r.i)} / ${U.num(r.total)}곡 살펴봄` : esc(st.step || "준비하는 중…")}${avg ? ` · 곡당 약 ${avg}초` : ""}</p>
+        ${r && r.current ? `<p class="ls-note">만드는 중: ${esc(r.current.title)}${r.current.artist ? " — " + esc(r.current.artist) : ""}</p>` : st.step && r && r.total ? `<p class="ls-note">${esc(st.step)}</p>` : ""}
+        ${lsCounts(r)}`;
+      btns = `<button class="btn ghost" data-act="ls-stop">멈춤</button>`;
+    } else {
+      body = r ? `<p class="ls-step">${r.stopped ? "멈췄어요" : "다 살펴봤어요"}</p>${lsCounts(r)}` : `<p class="ls-note">가사는 있지만 시간 정보가 없는 곡을 모두 찾아서 만들어요. 이미 시간 가사가 있는 곡은 건너뛰고, 중간에 멈춰도 다음에 이어서 해요.</p>`;
+      btns = `<button class="btn ghost" data-act="ls-remove">설치 지우기</button><button class="btn" data-act="ls-start">${r ? "다시 시작" : "시작"}</button>`;
+    }
+    const checks = st.checks || [];
+    const checkList = checks.length ? `<div class="ls-checks"><button class="ls-checks-head" data-act="ls-checks"><span class="chev${lsShowChecks ? " open" : ""}"></span>확인해 볼 곡 ${U.num(checks.length)}개</button>
+      ${lsShowChecks ? `<p class="ls-note">자동으로 맞춘 결과가 어긋났을 수 있는 곡이에요. 재생해 보고 확인해 주세요.</p>${checks.map((o) => `<div class="ls-check"><a href="#/track/${encodeURIComponent(o.id)}">${esc(o.title || o.id)}</a><small>${esc(o.artist || "")}</small><em class="${o.status}">${o.status === "fail" ? "실패" : "확인"} · ${esc(o.reason || "")}</em></div>`).join("")}` : ""}</div>` : "";
+    return `<h3>싱크 가사 만들기</h3><p>가사는 있는데 시간 정보가 없는 곡을, 이 PC가 음원에 맞춰 시간 가사로 만들어 폰에 저장해요. 가사 글은 파일에 있던 그대로 쓰고, 원본 파일은 바꾸지 않아요.</p>
+      <div class="addr">${rows.join("")}</div>${body}
+      ${st.error ? `<p class="ls-err">${esc(st.error)}</p>` : ""}
+      <div class="ls-btns">${btns}</div>${checkList}`;
+  }
+  function lsCounts(r) {
+    if (!r) return "";
+    const parts = [["새로 만듦", r.done + r.check], ["확인 필요", r.check], ["실패", r.fail], ["사본으로 되살림", r.restored], ["건너뜀", r.skip]].filter(([, n]) => n > 0);
+    return parts.length ? `<p class="ls-note">${parts.map(([k, n]) => `${k} <b>${U.num(n)}</b>`).join(" · ")}</p>` : "";
+  }
+  function lsAct(act) {
+    const pw = PWA(); if (!pw) return;
+    const done = (res) => { if (res && res.ok === false && !res.cancel) toast(res.error || "실패했어요"); lsPoll(); };
+    const fail = (err) => { toast("실패: " + ((err && err.message) || err)); lsPoll(); };
+    if (act === "ls-checks") { lsShowChecks = !lsShowChecks; renderLsCard(); return; }
+    if (act === "ls-pick") pw.ls_pick_dir().then(done, fail);
+    else if (act === "ls-install") pw.ls_install().then(done, fail);
+    else if (act === "ls-stop") pw.ls_stop().then(done, fail);
+    else if (act === "ls-remove") { if (confirm("설치한 실행 환경과 모델을 지울까요?\n폰에 저장된 싱크 가사와 PC에 남긴 사본은 지우지 않아요.")) pw.ls_remove().then(done, fail); }
+    else if (act === "ls-start") API.token().then((t) => pw.ls_start(location.origin, t.token)).then(done, fail);
   }
 
   const notFound = () => `<div class="page"><div class="empty"><b>찾을 수 없어요</b>컬렉션에서 빠진 항목일 수 있어요.</div></div>`;
@@ -1456,6 +1524,7 @@
             .catch((err) => { if (FD) { FD.saving = false; renderFolderCard(); } toast("실패: " + err.message); });
           return;
         }
+        case "ls-pick": case "ls-install": case "ls-stop": case "ls-remove": case "ls-start": case "ls-checks": lsAct(act); return;
         case "server-toggle": { const on = !a.classList.contains("on"); try { window.NativeBridge.setServerEnabled(on); } catch (err) {} setTimeout(rerender, 400); return; }
         case "rescan": { toast("라이브러리를 다시 읽는 중…"); (window.NativeBridge ? Promise.resolve(window.NativeBridge.rescan()) : API.rescan()).then(() => setTimeout(reloadLibrary, 300)).catch((err) => toast("실패: " + err.message)); return; }
       }

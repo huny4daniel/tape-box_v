@@ -3,6 +3,7 @@
 같은 Wi-Fi에 있는 폰 앱을 찾아 그 화면을 창 하나로 띄운다.
 - 지난번에 붙었던 주소를 먼저 확인하고, 없으면 PC가 붙어 있는 네트워크를 훑어 8642 포트를 연 폰을 찾는다.
 - 창(WebView2)의 쿠키를 저장해 두므로 PIN은 처음 한 번만 넣으면 된다. PIN 입력 화면은 폰이 내려주는 화면이 그대로 띄운다.
+- 폰 화면의 「설정 · 연결」에서 싱크 가사 생성기(lyricsync.py)를 설치하고 돌릴 수 있게 js_api를 연다.
 """
 import asyncio
 import ipaddress
@@ -16,6 +17,8 @@ import urllib.request
 
 import psutil
 import webview
+
+from lyricsync import LyricSync
 
 APP_TITLE = "테이프 박스"
 PORT = 8642
@@ -185,10 +188,42 @@ class Finder:
             time.sleep(3)
 
 
+class Api:
+    """폰 화면(설정 · 연결)이 window.pywebview.api로 부르는 PC 쪽 기능. 지금은 싱크 가사 생성기"""
+
+    def __init__(self):
+        self._window = None
+        self._ls = LyricSync(load_config, save_config)
+
+    def ls_state(self):
+        return self._ls.state()
+
+    def ls_pick_dir(self):
+        kind = getattr(getattr(webview, "FileDialog", None), "FOLDER", None) or webview.FOLDER_DIALOG
+        r = self._window.create_file_dialog(kind)
+        if not r:
+            return {"ok": False, "cancel": True}
+        return self._ls.set_parent(r[0] if isinstance(r, (list, tuple)) else r)
+
+    def ls_install(self):
+        return self._ls.install()
+
+    def ls_remove(self):
+        return self._ls.remove()
+
+    def ls_start(self, server, token):
+        return self._ls.start(server, token)
+
+    def ls_stop(self):
+        return self._ls.stop()
+
+
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
+    api = Api()
     window = webview.create_window(APP_TITLE, html=STATUS_HTML, width=1280, height=820,
-                                   min_size=(720, 520), background_color="#0d0c0b")
+                                   min_size=(720, 520), background_color="#0d0c0b", js_api=api)
+    api._window = window
     finder = Finder(window)
     # 쿠키(짝 맺은 기록)를 남기려면 private_mode를 꺼야 한다
     webview.start(lambda: threading.Thread(target=finder.run, daemon=True).start(),

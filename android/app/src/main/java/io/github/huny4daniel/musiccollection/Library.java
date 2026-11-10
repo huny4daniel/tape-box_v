@@ -180,7 +180,15 @@ public class Library {
         if (cached != null) return cached;
         Track t = get(id);
         JSONObject res = new JSONObject();
-        if (t != null) {
+        String[] made = t == null ? null : db.lyrics(id);
+        List<Id3Lyrics.Line> madeLines = made == null ? null : Id3Lyrics.parseLrc(made[0]);
+        if (madeLines != null && !madeLines.isEmpty()) {
+            JSONArray a = new JSONArray();
+            for (Id3Lyrics.Line l : madeLines) a.put(new JSONArray().put(l.ms).put(l.text));
+            res.put("synced", a);
+            res.put("plain", JSONObject.NULL);
+            res.put("source", made[1] == null ? "made" : made[1]);
+        } else if (t != null) {
             Id3Lyrics.Result r = Id3Lyrics.read(ctx, t.uri());
             if (r.synced != null && !r.synced.isEmpty()) {
                 JSONArray a = new JSONArray();
@@ -188,10 +196,13 @@ public class Library {
                 res.put("synced", a);
             } else res.put("synced", JSONObject.NULL);
             res.put("plain", r.plain == null || r.plain.trim().isEmpty() ? JSONObject.NULL : r.plain);
+            res.put("source", "file");
         }
         lyricsCache.put(id, res);
         return res;
     }
+
+    public void forgetLyrics(String id) { lyricsCache.remove(id); }
 
     /** 재생기에 넣을 항목. 화면에서는 id만 넘기고 여기서 파일·표시 정보를 채운다. */
     public MediaItem toMediaItem(String id) {

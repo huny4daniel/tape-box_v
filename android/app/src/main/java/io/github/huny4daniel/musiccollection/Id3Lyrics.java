@@ -158,13 +158,15 @@ public class Id3Lyrics {
 
     /** LRC 형식이면 시간 가사로, 아니면 null */
     static List<Line> parseLrc(String text) {
+        if (text == null) return null;
         List<Line> out = new ArrayList<>();
         long offset = 0;
         Matcher om = OFFSET.matcher(text);
         if (om.find()) offset = Long.parseLong(om.group(1));
         int timed = 0, lines = 0;
-        for (String line : text.split("\n")) {
-            if (line.trim().isEmpty()) continue;
+        for (String line : text.replace("\r", "").split("\n")) {
+            line = line.replace("﻿", "").trim();
+            if (line.isEmpty()) continue;
             lines++;
             Matcher m = TIME.matcher(line);
             List<Long> times = new ArrayList<>();
