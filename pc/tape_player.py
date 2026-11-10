@@ -10,13 +10,31 @@ import ipaddress
 import json
 import os
 import socket
+import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 
-import psutil
-import webview
+
+def _unblock_bundle():
+    """배포 zip을 탐색기로 풀면 모든 파일에 '인터넷에서 받음' 표시(Zone.Identifier)가 붙는다.
+    .NET Framework는 그런 DLL(pythonnet의 Python.Runtime.dll 등)을 거부해 창이 뜨지 못하므로,
+    webview를 불러오기 전에 실행 폴더 안 파일의 표시를 지운다."""
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+    for dirpath, _, files in os.walk(os.path.dirname(sys.executable)):
+        for name in files:
+            try:
+                os.remove(os.path.join(dirpath, name) + ":Zone.Identifier")
+            except OSError:
+                pass
+
+
+_unblock_bundle()
+
+import psutil  # noqa: E402
+import webview  # noqa: E402
 
 from lyricsync import LyricSync
 
