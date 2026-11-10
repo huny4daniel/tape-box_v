@@ -74,10 +74,20 @@ jobs:
         with:
           python-version: '3.12'
       # pip 배포판의 공용 부트로더 대신 러너의 MSVC로 소스에서 컴파일한다
+      # (sdist에도 미리 빌드된 부트로더가 들어 있어 waf로 직접 다시 빌드하고, 실제로 바뀌었는지 해시로 확인)
       - name: Install PyInstaller with self-built bootloader
-        env:
-          PYINSTALLER_COMPILE_BOOTLOADER: '1'
-        run: pip install --no-binary pyinstaller pyinstaller
+        run: |
+          mkdir -p _pyi && cd _pyi
+          pip download --no-binary :all: --no-deps pyinstaller
+          tar xzf pyinstaller-*.tar.gz && rm pyinstaller-*.tar.gz
+          cd pyinstaller-*
+          BL=PyInstaller/bootloader/Windows-64bit-intel/runw.exe
+          before=$(sha256sum "$BL" | cut -d' ' -f1)
+          (cd bootloader && python ./waf all --target-arch=64bit)
+          after=$(sha256sum "$BL" | cut -d' ' -f1)
+          echo "runw.exe: $before -> $after"
+          [ "$before" != "$after" ] || { echo "부트로더가 다시 빌드되지 않았다"; exit 1; }
+          pip install .
       - name: Install dependencies
         run: pip install -r pc/requirements.txt
       # exe 속성의 회사명·제품명·버전 정보 (태그 vX.Y.Z에서 숫자를 뽑는다)
