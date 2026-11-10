@@ -116,6 +116,42 @@
   const topAlbumOf = (r) => { let best = null; for (const k of r.albums) { const a = L.albums.get(k); if (!best || a.plays > best.plays || (a.plays === best.plays && a.tracks.length > best.tracks.length)) best = a; } return best; };
   const section = (title, sub, body, more) => `<section class="section"><div class="section-head"><div><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}</div>${more ? `<a href="${more}">모두 보기</a>` : ""}</div>${body}</section>`;
 
+  const ROW_MAX = 20; // 가로 줄에 보여 줄 개수
+  const LZ = {}; let lzSeq = 0, lzObs = null;
+  function lazyItems(items, fn, first = 40, chunk = 40) {
+    if (items.length <= first) return items.map(fn).join("");
+    const key = "lz" + ++lzSeq;
+    LZ[key] = { items, fn, i: first, chunk };
+    return items.slice(0, first).map(fn).join("") + `<div class="lazy-more" data-lazy="${key}"></div>`;
+  }
+  function lazyStep(el, n) {
+    const st = LZ[el.dataset.lazy]; if (!st) { el.remove(); return false; }
+    const next = st.items.slice(st.i, st.i + (n || st.chunk)); st.i += next.length;
+    el.insertAdjacentHTML("beforebegin", next.map(st.fn).join(""));
+    if (st.i >= st.items.length) { if (lzObs) lzObs.unobserve(el); el.remove(); delete LZ[el.dataset.lazy]; return false; }
+    return true;
+  }
+  function mountLazy(wantScroll) {
+    if (lzObs) lzObs.disconnect();
+    const els = $$("[data-lazy]", view); if (!els.length) return;
+    // 돌아왔을 때 예전 스크롤 위치까지는 미리 그려 둔다
+    for (const el of els) while (view.scrollHeight < wantScroll + view.clientHeight * 2 && lazyStep(el));
+    lzObs = new IntersectionObserver((ents) => ents.forEach((en) => {
+      if (!en.isIntersecting) return;
+      if (lazyStep(en.target)) { lzObs.unobserve(en.target); lzObs.observe(en.target); } // 아직 보이면 한 번 더
+    }), { root: view, rootMargin: "1200px 0px" });
+    $$("[data-lazy]", view).forEach((el) => lzObs.observe(el));
+    // 손을 놓고 있는 동안 조금씩 미리 그려 둔다 (스크롤할 때 한꺼번에 그리느라 끊기지 않게). 너무 길면 앞부분만
+    const idle = window.requestIdleCallback || ((f) => setTimeout(() => f({ timeRemaining: () => 8 }), 60));
+    const fill = (dl) => {
+      const el = $("[data-lazy]", view); if (!el) return;
+      const st = LZ[el.dataset.lazy]; if (!st || st.i >= 240) return;
+      while (dl.timeRemaining() > 4 && lazyStep(el, 4) && st.i < 240);
+      if (el.isConnected && st.i < st.items.length) idle(fill);
+    };
+    idle(fill);
+  }
+
   // ───────── 라우터 ─────────
   const view = $("#view");
   const scrolls = {};
@@ -136,11 +172,15 @@
     const fn = pages[r.name] || pages.home;
     setTint(null);
     $("#topbar-title").textContent = "";
+    // 홈(대시보드) 오른쪽 위에 설정 버튼
+    $("#topbar-extra").innerHTML = fn === pages.home ? '<a class="round-btn" href="#/settings" title="설정 · 연결"><i class="ic ic-gear"></i></a>' : "";
+    for (const k in LZ) delete LZ[k];
     view.innerHTML = fn(r.arg) || "";
     const navName = { album: "albums", artist: "artists", playlist: "playlists", liked: "playlists" }[r.name] || r.name;
     $$("[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === r.name || (a.closest("#sidebar") && a.dataset.nav === navName) || (r.name === "home" && a.dataset.nav === "home") || (["albums", "artists", "playlist", "playlists", "liked"].includes(r.name) && a.dataset.nav === "library" )));
     $$(".side-pl").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + r.hash));
     if (pages[r.name] && pages[r.name].after) pages[r.name].after(r.arg);
+    mountLazy(st);
     view.scrollTop = st;
     onScroll();
   }
@@ -168,17 +208,13 @@
   }, { passive: false });
 
   // ───────── 페이지: 홈 ─────────
+  // 홈의 '아직 만나지 못한 곡' 섹션: 지금은 숨김. 다시 보이려면 true로
+  const SHOW_UNHEARD = false;
   pages.home = () => {
     const T = L.tracks;
     if (!T.length) return `<div class="page"><div class="empty"><b>아직 소장한 곡이 없어요</b>폰에 mp3를 넣고 설정에서 라이브러리를 다시 읽어 주세요.</div></div>`;
-    const hr = new Date().getHours();
-    const greet = hr < 5 ? "늦은 밤이에요" : hr < 12 ? "좋은 아침이에요" : hr < 18 ? "좋은 오후예요" : "좋은 저녁이에요";
-    const first = T.reduce((m, t) => Math.min(m, t.addedAt || Infinity), Infinity);
-    const totalDur = T.reduce((s, t) => s + (t.duration || 0), 0);
-    const totalListen = T.reduce((s, t) => s + (t.listenedMs || 0), 0);
 
-    // 나의 테이프: 아끼는 곡 + 최근 손댄 재생목록 순
-    const tapes = [likedPl()].concat(L.playlists.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0)));
+    const tapes = sortedTapes().slice(0, ROW_MAX); // 가로 줄은 앞부분만 (전체는 '모두 보기')
 
     const recent = T.filter((t) => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 14);
     const fresh = T.slice().sort((a, b) => b.n - a.n).slice(0, 14);
@@ -192,20 +228,12 @@
     const decades = Object.keys(dec).map(Number).sort((a, b) => b - a);
 
     return `<div class="page">
-      <div class="greet"><h1>${greet}</h1><p>${isFinite(first) ? U.fmtDateKo(first).slice(0, 5) + "부터 모아 온 " : ""}${U.num(T.length)}곡의 컬렉션</p></div>
-      <div class="stats">
-        <div><b>${U.num(T.length)}</b><span>소장곡</span></div>
-        <div><b>${U.num(L.artists.size)}</b><span>아티스트</span></div>
-        <div><b>${U.num(L.albums.size)}</b><span>앨범</span></div>
-        <div><b>${U.fmtHours(totalDur)}</b><span>시간 분량</span></div>
-        <div><b>${U.fmtHours(totalListen)}</b><span>함께한 시간</span></div>
-      </div>
       ${section("나의 테이프", null, `<div class="tape-row" data-hscroll>${tapes.map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`, "#/playlists")}
 
       ${recent.length ? section("최근 들은 곡", null, `<div class="shelf scroll">${recent.map((t) => trackCard(t, U.ago(t.lastPlayed) + " · " + t.artist)).join("")}</div>`) : ""}
       ${section("새로 들인 곡", "가장 최근에 컬렉션에 들어온 노래들", `<div class="shelf scroll">${fresh.map((t) => trackCard(t, U.fmtDate(t.addedAt) + " 수집")).join("")}</div>`, "#/collection")}
       ${longAgo.length ? section("오랜만이에요", "한때 자주 들었지만 한동안 못 만난 곡", `<div class="shelf scroll">${longAgo.map((t) => trackCard(t, "마지막 " + U.ago(t.lastPlayed))).join("")}</div>`) : ""}
-      ${unheard.length ? section("아직 만나지 못한 곡", `소장했지만 한 번도 듣지 않은 곡이 ${U.num(unheard.length)}곡 있어요`, `<div class="shelf scroll">${U.pick(unheard, 14, rnd).map((t) => trackCard(t, t.artist)).join("")}</div>`, "#/collection/unheard") : ""}
+      ${SHOW_UNHEARD && unheard.length ? section("아직 만나지 못한 곡", `소장했지만 한 번도 듣지 않은 곡이 ${U.num(unheard.length)}곡 있어요`, `<div class="shelf scroll">${U.pick(unheard, 14, rnd).map((t) => trackCard(t, t.artist)).join("")}</div>`, "#/collection/unheard") : ""}
       ${top.length ? section("가장 많이 들은 곡", null, trackList("home-top", top, "index")) : ""}
       ${decades.length ? section("시대별 컬렉션", null, `<div class="shelf scroll">${decades.map((d) => `<a class="card" href="#/year/${d}">${mosaic(U.pick(dec[d], 40, U.seeded(d)), 300)}<b>${d}년대</b><span>${U.num(dec[d].length)}곡</span></a>`).join("")}</div>`) : ""}
     </div>`;
@@ -260,6 +288,13 @@
       <div class="tape-foot"><i></i><i></i><i></i><i></i></div>
     </div>`;
   }
+  // 테이프를 마지막으로 튼 때 (이 기기 기준)
+  function tapePlayedMap() { try { return JSON.parse(localStorage.getItem("mc.tapePlayed") || "{}") || {}; } catch (e) { return {}; } }
+  function markTapePlayed() {
+    const c = P.context; if (!c || c.type !== "playlist" || !c.id) return;
+    const m = tapePlayedMap(); m[c.id] = Date.now();
+    try { localStorage.setItem("mc.tapePlayed", JSON.stringify(m)); } catch (e) {}
+  }
   const tapeHref = (pl) => pl.id === "liked" ? "#/liked" : "#/playlist/" + encodeURIComponent(pl.id);
   const tapeItem = (pl) => cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), attrs: `data-pl="${esc(pl.id)}" data-plid="${esc(pl.id)}"` });
 
@@ -296,9 +331,9 @@
     return T.sort(cmp);
   }
   pages.collection = (arg) => {
-    if (arg && FILTERS.some((f) => f[0] === arg)) colState.filter = arg;
+    // 필터 칩은 없앴다. 주소로 들어온 필터(#/collection/unheard 등)만 쓰고, 그냥 들어오면 전체
+    colState.filter = arg && FILTERS.some((f) => f[0] === arg) ? arg : "all";
     const T = collectionTracks(colState.filter, colState.sort);
-    const counts = {}; FILTERS.forEach(([k]) => (counts[k] = k === "all" ? L.tracks.length : collectionTracks(k, "new").length));
     const first = L.tracks.reduce((m, t) => Math.min(m, t.addedAt || Infinity), Infinity);
     $("#topbar-title").textContent = "곡 목록";
     lists.collection = T.map((t) => t.id);
@@ -313,7 +348,6 @@
         <span style="flex:1"></span>
         <label class="select"><select data-act="col-sort">${SORTS.map(([k, n]) => `<option value="${k}"${k === colState.sort ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       </div>
-      <div class="chips" style="margin-bottom:6px">${FILTERS.map(([k, n]) => `<button class="chip${k === colState.filter ? " on" : ""}" data-act="col-filter" data-v="${k}">${n} <span class="count">${U.num(counts[k])}</span></button>`).join("")}</div>
       <div data-list="collection" id="col-list"></div>
       ${T.length ? "" : `<div class="empty"><b>해당하는 곡이 없어요</b></div>`}
     </div>`;
@@ -322,18 +356,8 @@
     // 3천 곡을 한 번에 그리면 폰에서 버벅이므로 한 그리드에 조금씩 이어 붙인다
     const T = lists.collection.map((id) => L.byId.get(id));
     const box = $("#col-list"); if (!box) return;
-    box.innerHTML = '<div class="shelf"></div>';
-    const grid = box.firstChild;
-    const token = curRoute;
-    let i = 0;
-    const step = () => {
-      if (curRoute !== token || !grid.isConnected) return;
-      const end = Math.min(T.length, i + 240);
-      let html = ""; for (; i < end; i++) html += trackCard(T[i]);
-      grid.insertAdjacentHTML("beforeend", html);
-      if (i < T.length) requestAnimationFrame(step);
-    };
-    step();
+    // 스크롤해서 끝에 가까워질 때만 이어서 그린다 (미리 다 그리면 스크롤하는 동안 계속 끊긴다)
+    box.innerHTML = `<div class="shelf">${lazyItems(T, (t) => trackCard(t), 48, 48)}</div>`;
   };
 
   // ───────── 페이지: 아끼는 곡 / 연대 ─────────
@@ -353,7 +377,7 @@
     $("#topbar-title").textContent = d + "년대";
     setTint(U.hue(String(d)) + " 30% 28%");
     return `<div class="page">
-      <div class="hero">${mosaic(U.pick(T, 40, U.seeded(d)), 480)}<div class="hero-text"><div class="hero-kicker">시대별 컬렉션</div><h1>${d}년대</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${d}~${d + 9}년에 나온 소장곡</span></div></div></div>
+      <div class="hero">${collectionTape("year-" + d, d + "년대", T, "year")}<div class="hero-text"><div class="hero-kicker">시대별 컬렉션</div><h1>${d}년대</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${d}~${d + 9}년에 나온 소장곡</span></div></div></div>
       <div class="actions"><button class="play-fab" data-act="list-play" data-list="year"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="year"><i class="ic ic-shuffle"></i></button></div>
       ${trackList("year", T, "collection")}
     </div>`;
@@ -361,25 +385,38 @@
 
   // ───────── 페이지: 앨범·아티스트 ─────────
   const libSort = (() => { try { return Object.assign({ albums: "recent", artists: "count" }, JSON.parse(localStorage.getItem("mc.libsort") || "{}")); } catch (e) { return { albums: "recent", artists: "count" }; } })();
-  pages.albums = () => {
+  function sortedAlbums() {
     const A = Array.from(L.albums.values());
     const s = libSort.albums;
-    A.sort(s === "name" ? (a, b) => ko.compare(a.title, b.title) : s === "artist" ? (a, b) => ko.compare(a.artist, b.artist) || (a.year || 0) - (b.year || 0) : s === "year" ? (a, b) => (b.year || 0) - (a.year || 0) : s === "plays" ? (a, b) => b.plays - a.plays : (a, b) => b.addedAt - a.addedAt);
+    return A.sort(s === "name" ? (a, b) => ko.compare(a.title, b.title) : s === "artist" ? (a, b) => ko.compare(a.artist, b.artist) || (a.year || 0) - (b.year || 0) : s === "year" ? (a, b) => (b.year || 0) - (a.year || 0) : s === "plays" ? (a, b) => b.plays - a.plays : (a, b) => b.addedAt - a.addedAt);
+  }
+  function sortedArtists() {
+    const R = Array.from(L.artists.values());
+    const s = libSort.artists;
+    return R.sort(s === "name" ? (a, b) => ko.compare(a.name, b.name) : s === "plays" ? (a, b) => b.plays - a.plays : s === "first" ? (a, b) => a.first - b.first : (a, b) => b.tracks.length - a.tracks.length);
+  }
+  // 나의 테이프 순서: 최근에 틀어 본 테이프부터, 안 틀어 본 건 그 뒤에 (아끼는 곡 먼저) 최근에 고친 순
+  function sortedTapes() {
+    const played = tapePlayedMap();
+    return [likedPl()].concat(L.playlists).sort((a, b) => (played[b.id] || 0) - (played[a.id] || 0) || (b.id === "liked") - (a.id === "liked") || (b.updated || 0) - (a.updated || 0));
+  }
+  pages.albums = () => {
+    const A = sortedAlbums();
+    const s = libSort.albums;
     $("#topbar-title").textContent = "앨범";
     return `<div class="page">
       <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">앨범</h2><p>${U.num(A.length)}장</p></div>
       <label class="select"><select data-act="lib-sort" data-k="albums">${[["recent", "최근 수집순"], ["name", "이름순"], ["artist", "아티스트순"], ["year", "발매연도순"], ["plays", "많이 들은 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
-      <div class="lp-grid">${A.map(lpAlbum).join("")}</div></div>`;
+      <div class="lp-grid">${lazyItems(A, lpAlbum)}</div></div>`;
   };
   pages.artists = () => {
-    const R = Array.from(L.artists.values());
+    const R = sortedArtists();
     const s = libSort.artists;
-    R.sort(s === "name" ? (a, b) => ko.compare(a.name, b.name) : s === "plays" ? (a, b) => b.plays - a.plays : s === "first" ? (a, b) => a.first - b.first : (a, b) => b.tracks.length - a.tracks.length);
     $("#topbar-title").textContent = "아티스트";
     return `<div class="page">
       <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">아티스트</h2><p>${U.num(R.length)}명</p></div>
       <label class="select"><select data-act="lib-sort" data-k="artists">${[["count", "소장곡 많은 순"], ["name", "이름순"], ["plays", "많이 들은 순"], ["first", "처음 만난 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div>
-      <div class="shelf">${R.map(artistCard).join("")}</div></div>`;
+      <div class="shelf artist-grid">${lazyItems(R, artistCard, 45, 45)}</div></div>`;
   };
   pages.album = (key) => {
     const a = L.albums.get(key);
@@ -600,7 +637,7 @@
     const T = L.tracks.filter((t) => t.genre === g).sort((a, b) => b.n - a.n);
     $("#topbar-title").textContent = g;
     setTint(U.hue(g) + " 40% 30%");
-    return `<div class="page"><div class="hero">${mosaic(T, 480)}<div class="hero-text"><div class="hero-kicker">장르</div><h1>${esc(g)}</h1><div class="hero-meta"><b>${T.length}곡</b></div></div></div>
+    return `<div class="page"><div class="hero">${collectionTape("genre-" + g, g, T, "genre")}<div class="hero-text"><div class="hero-kicker">장르</div><h1>${esc(g)}</h1><div class="hero-meta"><b>${T.length}곡</b></div></div></div>
       <div class="actions"><button class="play-fab" data-act="list-play" data-list="genre"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="genre"><i class="ic ic-shuffle"></i></button></div>
       ${trackList("genre", T, "collection")}</div>`;
   };
@@ -608,11 +645,12 @@
   // ───────── 페이지: 라이브러리 (폰) ─────────
   pages.library = () => {
     $("#topbar-title").textContent = "라이브러리";
-    const liked = L.tracks.filter((t) => t.fav);
+    const tapes = sortedTapes(), albums = sortedAlbums(), artists = sortedArtists();
     return `<div class="page">
       <div class="section-head" style="margin-top:4px"><h2 style="font-size:26px">라이브러리</h2><button class="icon-btn" data-act="new-playlist" title="새 재생목록"><i class="ic ic-plus"></i></button></div>
-      <div class="chips" style="margin-bottom:12px"><a class="chip" href="#/albums">앨범 ${U.num(L.albums.size)}</a><a class="chip" href="#/artists">아티스트 ${U.num(L.artists.size)}</a><a class="chip" href="#/settings">설정 · 연결</a></div>
-      ${tapeRack()}
+      ${section("나의 테이프", `${U.num(tapes.length)}개`, `<div class="tape-row" data-hscroll>${tapes.slice(0, ROW_MAX).map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`, "#/playlists")}
+      ${section("앨범", `${U.num(albums.length)}장`, `<div class="lp-row" data-hscroll>${albums.slice(0, ROW_MAX).map(lpAlbum).join("")}</div>`, "#/albums")}
+      ${section("아티스트", `${U.num(artists.length)}명`, `<div class="shelf scroll artist-row" data-hscroll>${artists.slice(0, ROW_MAX).map(artistCard).join("")}</div>`, "#/artists")}
     </div>`;
   };
   // 나의 테이프 (재생목록 모음)
@@ -624,8 +662,14 @@
     </div>`;
   };
   function tapeRack() {
-    return `<div class="tape-grid">${[likedPl()].concat(L.playlists).map(tapeItem).join("")}
-      <button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`;
+    return `<div class="tape-grid"><button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>${lazyItems(sortedTapes(), tapeItem, 16, 10)}</div>`;
+  }
+  // 모음(시대별·장르) 상세 위쪽: 앨범아트 합성 대신 그 모음을 담은 카세트. 누르면 처음부터 재생
+  function collectionTape(id, name, T, listName) {
+    const pl = { id, name, items: T.map((t) => t.id) };
+    const t = T.find((x) => x.id === P.currentId) || T.find((x) => x.albumKey) || T[0];
+    const now = !!P.current && T.some((x) => x.id === P.currentId);
+    return `<div class="hero-tape">${cassette(pl, t, { now, noHeart: true, attrs: `data-act="list-play" data-list="${listName}" title="이 테이프 재생"` })}</div>`;
   }
   function heroTape(pl, listName) {
     return `<div class="hero-tape">${cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), attrs: `data-act="pl-tape-play" data-list="${listName}" data-plid="${esc(pl.id)}" title="이 테이프 재생"` })}</div>`;
@@ -796,7 +840,7 @@
   function lyricsHtml(d) {
     if (!d || (!d.synced && !d.plain)) return `<div class="lyrics plain"><p class="note" style="font-size:16px;margin-top:20px">이 곡에는 가사가 없어요.</p></div>`;
     if (d.synced) return `<div class="lyrics">${d.synced.map(([ms, text], i) => `<p class="ln${text.trim() ? "" : " blank"}" data-ms="${ms}" data-k="${i}"><span>${esc(text) || "♪"}</span></p>`).join("")}</div>`;
-    return `<div class="lyrics plain"><p class="note">시간 정보가 없는 가사예요</p>${d.plain.split(/\r?\n/).map((l) => `<p class="ln">${esc(l) || "&nbsp;"}</p>`).join("")}</div>`;
+    return `<div class="lyrics plain">${d.plain.split(/\r?\n/).map((l) => `<p class="ln">${esc(l) || "&nbsp;"}</p>`).join("")}</div>`;
   }
   function mountLyrics(box) {
     const t = P.current;
@@ -841,9 +885,8 @@
     if (!panelOpen) return;
     const body = $("#panel-body");
     if (panelTab === "lyrics") {
-      body.innerHTML = `<div class="lyrics-wrap"><div data-lyr></div></div>`;
-      const t = P.current;
-      if (t) U.tintFrom(API.artUrl(t.albumKey, 64), t.albumKey + t.album).then((c) => body.firstChild && body.firstChild.style.setProperty("--ly", c));
+      // PC 오른쪽 가사도 재생 화면과 같은 줄 메모지에
+      body.innerHTML = `<div class="np-memo paper panel-memo"><div class="np-memo-page"><div data-lyr></div></div></div>`;
       mountLyrics($("[data-lyr]", body));
     } else body.innerHTML = queueHtml();
   }
@@ -872,15 +915,19 @@
   const LYR_THEME_TOGGLE = false;
   let memoTheme = LYR_THEME_TOGGLE ? (() => { try { return localStorage.getItem("mc.lyrTheme") === "plain" ? "plain" : "paper"; } catch (e) { return "paper"; } })() : "paper";
   const memoThemeBtn = () => !LYR_THEME_TOGGLE ? "" : `<button class="icon-btn memo-theme" data-act="memo-theme" title="${memoTheme === "paper" ? "일반 가사로" : "메모지로"}"><i class="ic ${memoTheme === "paper" ? "ic-lyrics" : "ic-pen"}"></i></button>`;
-  function openFull() { if (!P.current) return; fp.hidden = false; npId = null; renderFull(); }
-  function closeFull() { fp.classList.remove("q-open"); fp.hidden = true; fp.innerHTML = ""; npId = null; }
+  let npEjected = false;   // 폰: 테이프를 꺼낸 빈 데크 화면
+  let npInsert = false;    // 방금 테이프를 꽂았다 (꽂히는 움직임)
+  let lastTapeId = null;   // 꺼낸 테이프 (선반에서 그 자리부터 보여 준다)
+  function openFull() { if (!P.current && !npEjected) return; fp.hidden = false; npId = null; renderFull(); }
+  function closeFull() { fp.classList.remove("q-open"); fp.hidden = true; fp.innerHTML = ""; npId = null; npEjected = false; }
   function renderFull() {
     if (fp.hidden) return;
+    if (npEjected) return renderEjected();
     const t = P.current; if (!t) return closeFull();
     // 같은 곡이면 버튼 상태만 바꾼다 (카세트 애니메이션이 끊기지 않게)
     if (npId === t.id) { syncFullControls(); return; }
     npId = t.id;
-    const bg = t.albumKey ? API.artUrl(t.albumKey, 300) : "";
+    const bg = t.albumKey ? API.artUrl(t.albumKey, 96) : "";
     fp.innerHTML = `
       <div class="np-bg" style="${U.phStyle(t.albumKey + t.album)}">${bg ? `<img alt="" src="${esc(bg)}" onerror="this.remove()">` : ""}</div>
       <div class="np-top">
@@ -890,10 +937,12 @@
       </div>
       <div class="np-main">
         <section class="np-deck">
-          <div class="np-tape-wrap${npMemo && isMobile() ? " memo" : ""}">${cassette(contextTape(), t, { big: true, now: true, order: P.index + 1, attrs: 'data-act="toggle" title="재생/일시정지"' })}
+          <div class="np-tape-wrap${npMemo ? " memo" : ""}">${wellHtml("under")}${cassette(contextTape(), t, { big: true, now: true, order: P.index + 1, attrs: 'data-act="toggle" title="재생/일시정지"' })}
             <div class="np-memo ${memoTheme}" data-act="memo-close">${memoThemeBtn()}<div class="np-memo-page"><div data-lyr></div></div></div></div>
+          <div class="np-gap"></div>
           <div class="np-meta">
             <div><b>${esc(t.title)}</b><span>${artistLinks(t)}</span></div>
+            <button class="icon-btn np-q-btn" data-act="mini-queue" title="재생목록"><i class="ic ic-queue"></i></button>
           </div>
           <div class="np-seek"><div class="range" data-range="seek"><div class="track"><div class="fill"></div></div><div class="knob"></div></div>
             <div class="times"><span data-time="pos">${U.fmtDur(P.pos)}</span><span data-time="dur">${U.fmtDur(P.dur)}</span></div></div>
@@ -904,9 +953,6 @@
             <button class="icon-btn" data-act="next" title="다음"><i class="ic ic-next"></i></button>
             <button class="icon-btn" data-act="repeat" data-np="repeat" title="반복"><i class="ic"></i></button>
           </div>
-          <div class="np-foot">${P.native ? "<span></span>" : `<div class="np-vol"><button class="icon-btn np-foot-btn" data-act="np-vol" title="볼륨"><i class="ic ic-volume"></i></button>
-            <div class="np-vol-pop"><div class="range" data-range="vol"><div class="track"><div class="fill"></div></div><div class="knob"></div></div></div></div>`}
-            <button class="icon-btn np-foot-btn np-foot-q" data-act="mini-queue" title="재생목록"><i class="ic ic-queue"></i></button></div>
         </section>
         <div class="np-sheet-bg" data-act="q-close"></div>
         <aside class="np-side">
@@ -922,9 +968,155 @@
     if (vol) bindRange(vol, () => P.volume, (f) => (P.volume = f), (f) => (P.volume = f));
     syncFullControls();
     renderNpSide();
-    if (npMemo && isMobile()) mountLyrics($(".np-memo [data-lyr]", fp));
+    if (npInsert) {
+      npInsert = false;
+      // 꽂히는 움직임은 한 번만. 클래스가 남아 있으면 가사 메모지를 닫고 테이프가 다시 보일 때 또 재생된다
+      const w = $(".np-tape-wrap", fp); w.classList.add("inserting");
+      $(":scope > .tape", w).addEventListener("animationend", () => w.classList.remove("inserting"), { once: true });
+    }
+    if (npMemo) mountLyrics($(".np-memo [data-lyr]", fp));
     updateTime();
   }
+  // ───────── 테이프 꺼내기 / 꽂기 (폰) ─────────
+  // 테이프 고르기: 재생목록 테이프들이 가로로 늘어서고, 누르거나 아래로 끌어 내리면 꽂힌다 (재생은 직접 누를 때)
+  // 테이프를 꽂는 데크 (재생 중에는 테이프 뒤에 숨어 있다가 꺼낼 때 드러난다)
+  const wellHtml = (cls) => `<div class="np-well${cls ? " " + cls : ""}"><i class="spindle l"></i><i class="spindle r"></i><div class="np-well-heads"><i></i><i></i><i></i><i></i></div></div>`;
+  function renderEjected() {
+    if (npId === "__eject") return;
+    npId = "__eject";
+    const tapes = [likedPl()].concat(L.playlists).filter((pl) => pl.items.some((id) => L.byId.has(id)));
+    fp.innerHTML = `
+      <div class="np-bg"></div>
+      <div class="np-top">
+        <button class="icon-btn" data-act="close-full" title="닫기"><i class="ic ic-down"></i></button>
+        <div class="ctx"></div><span class="np-top-gap"></span>
+      </div>
+      <div class="np-main">
+        <section class="np-deck np-eject">
+          ${tapes.length ? `<label class="np-shelf-search"><i class="ic ic-search"></i><input type="search" placeholder="테이프 이름이나 곡으로 찾기" autocomplete="off" spellcheck="false"></label>
+          <p class="np-eject-hint">꽂을 테이프를 골라 주세요</p>
+          <div class="np-shelf">${tapes.map((pl) => `<div class="np-shelf-tape" data-act="insert-tape" data-pl="${esc(pl.id)}">${cassette(pl, bandTrack(pl), { noHeart: true })}</div>`).join("")}</div>`
+          : `<p class="np-eject-hint">꽂을 테이프가 없어요. 라이브러리에서 테이프를 만들어 주세요</p>`}
+        </section>
+      </div>`;
+    const shelf = $(".np-shelf", fp), last = lastTapeId && shelf && $(`.np-shelf-tape[data-pl="${CSS.escape(lastTapeId)}"]`, shelf);
+    if (last) shelf.scrollLeft = last.offsetLeft - (shelf.clientWidth - last.offsetWidth) / 2;
+    // 검색: 테이프 이름, 또는 담긴 곡의 제목·가수가 맞는 테이프만 선반에 남긴다 (초성 검색도)
+    const input = $(".np-shelf-search input", fp), hint = $(".np-eject-hint", fp);
+    if (input) {
+      const byId = new Map(tapes.map((pl) => [pl.id, pl]));
+      const idx = new Map(tapes.map((pl) => { const q = U.norm(pl.name); return [pl.id, { q, cho: U.chosung(q) }]; }));
+      const order = $$(".np-shelf-tape", shelf); // 원래 순서 (검색어를 지우면 되돌린다)
+      input.addEventListener("input", () => {
+        const raw = input.value.trim(), q = U.norm(raw), cho = U.isChoQuery(raw);
+        const byName = [], bySong = [];
+        order.forEach((el) => {
+          const pl = byId.get(el.dataset.pl), x = idx.get(el.dataset.pl);
+          const nameHit = !q || (cho ? x.cho.includes(q) : x.q.includes(q));
+          const songHit = !nameHit && pl.items.some((id) => { const t = L.byId.get(id); return t && (cho ? t._cho.includes(q) : t._q.includes(q)); });
+          el.hidden = !nameHit && !songHit;
+          (nameHit ? byName : bySong).push(el);
+        });
+        // 테이프 이름이 맞는 것을 먼저, 그다음 담긴 곡이 맞는 것
+        byName.concat(bySong).forEach((el) => shelf.appendChild(el));
+        const shown = byName.length + bySong.filter((el) => !el.hidden).length;
+        shelf.scrollLeft = 0;
+        hint.textContent = shown ? "꽂을 테이프를 골라 주세요" : "찾는 테이프가 없어요";
+      });
+    }
+  }
+  function ejectTape(tp) {
+    const c = P.context; lastTapeId = c && c.type === "playlist" ? c.id : null;
+    // 왼쪽이 먼저 들리고, 기운 채로 위로 빠져나간다
+    // 손을 뗀 자리에서 그대로 이어서 위로만 움직인다 (되돌아 내려오지 않게)
+    const ty = +tp.dataset.ty || 0, rot = +tp.dataset.rot || 0, tilt = Math.max(rot, 12);
+    const a = tp.animate([
+      { transform: `translateY(${ty}px) rotate(${rot}deg)` },
+      { transform: `translateY(${ty - 50}px) rotate(${tilt}deg)`, offset: .25 },
+      { transform: `translateY(-125vh) rotate(${tilt + 8}deg)` },
+    ], { duration: 520, easing: "cubic-bezier(.4,0,.8,.5)", fill: "forwards" });
+    a.onfinish = () => { npEjected = true; npMemo = false; npId = null; P.eject(); renderFull(); };
+  }
+  function insertTape(plId) {
+    const pl = plId === "liked" ? likedPl() : L.playlists.find((p) => p.id === plId);
+    if (!pl) return;
+    const ids = pl.items.filter((id) => L.byId.has(id)); if (!ids.length) return;
+    npEjected = false; npId = null; npInsert = true;
+    // 꽂기만 하고 재생은 사용자가 누를 때
+    P.playList(ids, 0, { type: "playlist", id: pl.id, name: pl.name }, { autoplay: false });
+    renderFull();
+  }
+  // 빈 데크: 선반의 테이프를 아래(데크 쪽)로 끌어 내려도 꽂힌다. 옆으로 미는 건 선반 넘기기
+  fp.addEventListener("pointerdown", (e) => {
+    if (!npEjected) return;
+    const st = e.target.closest(".np-shelf-tape"); if (!st) return;
+    const tp = $(".tape", st);
+    const sx = e.clientX, sy = e.clientY; let dy = 0, drag = false, done = false, ghost = null;
+    const mv = (ev) => {
+      const rx = ev.clientX - sx, ry = ev.clientY - sy;
+      if (!drag && !done) {
+        if (Math.abs(rx) > 10 && Math.abs(rx) > Math.abs(ry)) { done = true; return; } // 선반 넘기기
+        if (ry > 10 && ry > Math.abs(rx)) {
+          drag = true;
+          try { st.setPointerCapture(e.pointerId); } catch (err) {}
+          // 선반은 옆으로 스크롤되는 상자라 밖으로 끌면 잘린다 → 같은 자리에 띄운 복사본을 움직인다
+          const r = tp.getBoundingClientRect();
+          ghost = tp.cloneNode(true); ghost.classList.add("tape-ghost");
+          Object.assign(ghost.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px" });
+          fp.appendChild(ghost); tp.style.visibility = "hidden";
+        }
+      }
+      if (!drag) return;
+      dy = Math.max(0, ry);
+      ghost.style.transform = `translateY(${dy}px) rotate(${Math.min(8, dy / 30)}deg)`;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      if (!drag) return;
+      U._suppressClick = Date.now();
+      if (dy > 80) { ghost.remove(); insertTape(st.dataset.pl); return; }
+      ghost.style.transition = "transform .22s"; ghost.style.transform = "";
+      setTimeout(() => { ghost.remove(); tp.style.visibility = ""; }, 230);
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  });
+  // PC: 테이프 선반은 마우스 휠로도 옆으로 넘긴다
+  fp.addEventListener("wheel", (e) => {
+    const row = e.target.closest(".np-shelf"); if (!row || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    e.preventDefault(); row.scrollBy({ left: e.deltaY * (e.deltaMode === 1 ? 32 : 1) });
+  }, { passive: false });
+  // 재생 중인 테이프를 위로 끌어 올리면 꺼낸다
+  fp.addEventListener("pointerdown", (e) => {
+    if (npEjected) return;
+    const tp = e.target.closest(".np-tape-wrap > .tape");
+    if (!tp || e.target.closest(".tape-heart")) return;
+    const sx = e.clientX, sy = e.clientY; let dy = 0, drag = false, wasPlaying = false;
+    const mv = (ev) => {
+      const ry = ev.clientY - sy;
+      if (!drag && Math.abs(ry) > 6 && Math.abs(ry) > Math.abs(ev.clientX - sx)) {
+        drag = true; tp.classList.add("dragging"); try { tp.setPointerCapture(e.pointerId); } catch (err) {}
+        // 테이프를 건드리는 순간 멈춘다 (놓으면 이어서, 끝까지 올리면 꺼내기)
+        wasPlaying = P.playing; if (wasPlaying) P.pause();
+      }
+      if (!drag) return;
+      dy = Math.min(0, ry) + Math.max(0, ry) * .15; // 아래로는 살짝만 따라온다
+      const rot = Math.min(11, -Math.min(0, dy) / 14); // 끌어 올릴수록 왼쪽이 들린다 (오른쪽 아래 모서리를 축으로)
+      tp.style.transform = `translateY(${dy * .7}px) rotate(${rot}deg)`;
+      tp.dataset.ty = dy * .7; tp.dataset.rot = rot;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      if (!drag) return;
+      U._suppressClick = Date.now(); // 끌기가 끝난 자리에서 '누름'으로 처리되지 않게
+      tp.classList.remove("dragging");
+      if (dy < -90) ejectTape(tp);
+      else {
+        if (wasPlaying) P.play();
+        tp.style.transition = "transform .25s"; tp.style.transform = ""; setTimeout(() => (tp.style.transition = ""), 260); }
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  });
+
   function setMemo(on) {
     npMemo = on;
     const w = $(".np-tape-wrap", fp); if (!w) return;
@@ -944,7 +1136,7 @@
   function renderNpSide() {
     if (fp.hidden) return;
     const body = $(".np-side-body", fp); if (!body) return;
-    if (isMobile() && npSide === "lyrics") npSide = "queue"; // 폰은 가사를 카세트 자리 메모지로 본다
+    npSide = "queue"; // 가사는 카세트 자리의 메모지로 본다 (PC·폰)
     $$(".np-tabs [data-v]", fp).forEach((b) => b.classList.toggle("on", b.dataset.v === npSide));
     if (npSide === "lyrics") { body.innerHTML = "<div data-lyr></div>"; mountLyrics($("[data-lyr]", body)); }
     else {
@@ -1088,7 +1280,6 @@
     const a = e.target.closest("[data-act]");
     const rowEl = e.target.closest(".row[data-id]");
     // 재생 화면 볼륨: 바깥을 누르면 접는다
-    const vo = !fp.hidden && $(".np-vol.open", fp); if (vo && !e.target.closest(".np-vol")) vo.classList.remove("open");
     // 폰 재생 막대: 오른쪽 버튼들 말고는 어디를 눌러도 재생 화면으로
     if (isMobile() && e.target.closest("#playerbar") && !e.target.closest(".pb-mini")) { e.preventDefault(); openFull(); return; }
     if (e.target.closest("[data-stop]")) {
@@ -1102,8 +1293,9 @@
       switch (act) {
         case "back": history.back(); return;
         case "toggle":
-          if (isMobile() && a.closest(".np-tape-wrap")) { setMemo(true); return; } // 폰: 카세트를 누르면 가사 메모지
+          if (a.closest(".np-tape-wrap")) { setMemo(true); return; } // 카세트를 누르면 가사 메모지 (PC·폰)
           P.toggle(); return;
+        case "insert-tape": insertTape(a.dataset.pl); return;
         case "memo-close": if (!e.target.closest(".ln[data-ms]")) setMemo(false); return;
         case "memo-theme": {
           memoTheme = memoTheme === "paper" ? "plain" : "paper";
@@ -1119,7 +1311,6 @@
         case "fav": e.preventDefault(); toggleFav(id); return;
         case "more": { e.preventDefault(); e.stopPropagation(); const r = a.getBoundingClientRect(); const lst = a.closest("[data-list]"); trackMenu(id, r.left - 200, r.bottom + 4, lst ? { list: lst.dataset.list, i: rowEl ? +rowEl.dataset.i : -1 } : null); return; }
         case "open-full": openFull(); return;
-        case "np-vol": a.parentElement.classList.toggle("open"); return;
         case "mini-queue": // 재생 화면을 열고 재생목록을 아래에서 끌어올린다 (폰)
           npSide = "queue"; if (fp.hidden) openFull(); else renderNpSide();
           if (isMobile()) fp.classList.add("q-open");
@@ -1173,6 +1364,9 @@
     // 카드
     const card = e.target.closest('.card[data-card="track"]');
     if (card && isMobile()) { /* 폰에서는 카드도 링크로 동작 */ return; }
+    // 홈(대시보드)의 테이프 줄: 누르면 바로 재생 (꾹 누르면 상세 — 아래 onContext)
+    const rowTape = e.target.closest(".tape-row .tape[data-pl]");
+    if (rowTape) { playTape(rowTape.dataset.pl); return; }
     // 테이프는 그 재생목록으로 (LP 앨범은 링크)
     const tp = e.target.closest(".tape[data-pl]");
     if (tp) { const id = tp.dataset.pl; location.hash = id === "liked" ? "#/liked" : "#/playlist/" + encodeURIComponent(id); return; }
@@ -1232,6 +1426,16 @@
     else P.playList([id], 0, { type: "collection", name: "" }, { shuffle: false });
   }
 
+  // 테이프 재생: 이미 그 테이프를 재생 중이면 처음부터 다시 틀지 않고 재생 화면만 연다
+  function playTape(plId) {
+    const pl = plId === "liked" ? likedPl() : L.playlists.find((p) => p.id === plId);
+    if (!pl) return;
+    if (isPlayingPl(pl) && P.current) { if (!P.playing) P.play(); openFull(); return; }
+    const ids = pl.items.filter((id) => L.byId.has(id));
+    if (!ids.length) { toast("빈 테이프예요"); return; }
+    P.playList(ids, 0, { type: "playlist", id: pl.id, name: pl.name });
+  }
+  U.onContext(document, ".tape-row .tape[data-pl]", (el) => { location.hash = tapeHref({ id: el.dataset.pl }); });
   U.onContext(document, ".row[data-id], .card[data-id]", (el, x, y) => {
     if (el.closest(".add-finder") || el.closest("#fullplayer")) return;
     const lst = el.closest("[data-list]");
@@ -1310,6 +1514,7 @@
     const playList = P.playList.bind(P);
     P.playList = (...args) => { playList(...args); if (fp.hidden) openFull(); };
     P.on("state", onState);
+    P.on("played", markTapePlayed); // 한 곡이라도 제대로 들으면 그 테이프를 '최근에 들은' 것으로
     P.on("queue", () => {
       if (panelOpen && panelTab === "queue") renderPanel(); if (npSide === "queue") renderNpSide();
       // 폰 홈 화면 위젯의 카세트에도 같은 테이프 이름을 적는다

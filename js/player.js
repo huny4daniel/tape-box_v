@@ -167,6 +167,8 @@
       if (s.pos != null) { this.pos = s.pos; this._at = performance.now(); }
       if (s.dur != null && s.dur > 0) this.dur = s.dur;
       if (s.repeat) this.repeat = s.repeat;
+      if (s.shuffle != null) this.nShuffle = s.shuffle; // 위젯에서 바꾼 셔플도 따라간다
+      if (s.orig) this.nOrig = s.orig;
     }
     _onNative(m) {
       if (m.type === "state") { if (m.ids) this.queue = m.ids; this._apply(m); this.emit("state", { index: this.index, playing: this.playing, pos: this.pos, dur: this.dur }); this.emit("time", { pos: this.pos, dur: this.dur }); }
@@ -198,13 +200,24 @@
       const E = this.native ? NativeEngine : (window.MOCK_API ? SimEngine : WebEngine);
       this.eng = new E(getTrack);
       this.shuffle = false; this.original = null; this.context = null;
-      this.eng.on("state", (s) => { this.emit("state", s); this._save(); });
+      this.eng.on("state", (s) => { this._adoptShuffle(); this.emit("state", s); this._save(); });
       this.eng.on("time", (t) => this.emit("time", t));
       this.eng.on("played", (p) => this.emit("played", p));
       this.eng.on("listened", (p) => this.emit("listened", p));
       this.eng.on("error", (p) => this.emit("error", p));
       this.eng.on("native", (p) => this.emit("native", p));
       this._restore();
+    }
+    // 폰: 셔플 상태는 앱(위젯과 공유)이 기억한다. 화면에서 바꿀 땐 대기열을 바꾸기 전에 먼저 알린다
+    _tellShuffle() {
+      if (!this.native || !this.eng.N.setShuffleState) return;
+      try { this.eng.N.setShuffleState(!!this.shuffle, JSON.stringify(this.original || [])); } catch (e) {}
+      this.eng.nShuffle = !!this.shuffle; this.eng.nOrig = this.original || [];
+    }
+    _adoptShuffle() {
+      if (!this.native || this.eng.nShuffle == null || this.eng.nShuffle === this.shuffle) return;
+      this.shuffle = this.eng.nShuffle;
+      this.original = this.shuffle && this.eng.nOrig && this.eng.nOrig.length ? this.eng.nOrig.slice() : null;
     }
     get queue() { return this.eng.queue; }
     get index() { return this.eng.index; }
@@ -231,12 +244,21 @@
         ids = [ids[fi]].concat(U.shuffle(ids.filter((_, k) => k !== fi)));
         start = 0;
       } else this.original = null;
-      this.eng.load(ids, start, 0, true);
+      this._tellShuffle();
+      this.eng.load(ids, start, 0, !(opts && opts.autoplay === false));
       this.emit("queue");
     }
     playOne(id, ctxIds, ctx) {
       if (ctxIds && ctxIds.length) return this.playList(ctxIds, Math.max(0, ctxIds.indexOf(id)), ctx);
       this.playList([id], 0, ctx);
+    }
+    // 테이프 꺼내기: 멈추고 대기열을 비운다 (재생 화면에서 테이프를 위로 끌어 올렸을 때)
+    eject() {
+      this.pause();
+      this.context = null; this.shuffle = false; this.original = null;
+      this._tellShuffle();
+      this.eng.load([], 0, 0, false);
+      this.emit("queue"); this.emit("state", {});
     }
     toggle() { if (this.index < 0) return; this.eng.toggle(); }
     play() { this.eng.play(); }
@@ -252,15 +274,15 @@
     }
     toggleShuffle() {
       const q = this.queue, i = this.index, cur = q[i];
-      if (!cur) { this.shuffle = !this.shuffle; this.emit("state", {}); return this.shuffle; }
+      if (!cur) { this.shuffle = !this.shuffle; this._tellShuffle(); this.emit("state", {}); return this.shuffle; }
       if (!this.shuffle) {
         this.original = q.slice();
         const upcoming = U.shuffle(q.filter((_, k) => k !== i));
-        this.shuffle = true;
+        this.shuffle = true; this._tellShuffle();
         this.eng.sync([cur].concat(upcoming), 0);
       } else {
         const orig = this.original && this.original.includes(cur) ? this.original : q;
-        this.shuffle = false; this.original = null;
+        this.shuffle = false; this.original = null; this._tellShuffle();
         this.eng.sync(orig, orig.indexOf(cur));
       }
       this.emit("queue"); this.emit("state", {}); this._save();
@@ -269,19 +291,19 @@
     playNext(ids) {
       if (this.index < 0) return this.playList(ids, 0, null);
       const q = this.queue.slice(); q.splice(this.index + 1, 0, ...ids);
-      if (this.original) this.original.push(...ids);
+      if (this.original) { this.original.push(...ids); this._tellShuffle(); }
       this.eng.sync(q, this.index); this.emit("queue"); this._save();
     }
     addToQueue(ids) {
       if (this.index < 0) return this.playList(ids, 0, null);
       const q = this.queue.concat(ids);
-      if (this.original) this.original.push(...ids);
+      if (this.original) { this.original.push(...ids); this._tellShuffle(); }
       this.eng.sync(q, this.index); this.emit("queue"); this._save();
     }
     removeAt(k) {
       if (k === this.index || k < 0 || k >= this.queue.length) return;
       const q = this.queue.slice(); const [id] = q.splice(k, 1);
-      if (this.original) { const j = this.original.indexOf(id); if (j >= 0) this.original.splice(j, 1); }
+      if (this.original) { const j = this.original.indexOf(id); if (j >= 0) this.original.splice(j, 1); this._tellShuffle(); }
       this.eng.sync(q, k < this.index ? this.index - 1 : this.index); this.emit("queue"); this._save();
     }
     move(from, to) {
@@ -302,6 +324,7 @@
       if (this.native) {
         const s = this.eng.restore();
         try { const extra = JSON.parse(localStorage.getItem("mc.native.ctx") || "null"); if (extra) { this.context = extra.c; this.shuffle = !!extra.s; this.original = extra.o; } } catch (e) {}
+        this._adoptShuffle(); // 앱이 기억하는 셔플(위젯에서 바꿨을 수도 있음)이 우선
         this.on("queue", () => { try { localStorage.setItem("mc.native.ctx", JSON.stringify({ c: this.context, s: this.shuffle, o: this.original })); } catch (e) {} });
         this.on("state", () => { try { localStorage.setItem("mc.native.ctx", JSON.stringify({ c: this.context, s: this.shuffle, o: this.original })); } catch (e) {} });
         return s;

@@ -35,7 +35,12 @@ import androidx.media3.session.SessionToken;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.json.JSONArray;
+
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -48,6 +53,8 @@ public class TapeWidget extends AppWidgetProvider {
     static final String ACT_PREV = "io.github.huny4daniel.musiccollection.widget.PREV";
     static final String ACT_TOGGLE = "io.github.huny4daniel.musiccollection.widget.TOGGLE";
     static final String ACT_NEXT = "io.github.huny4daniel.musiccollection.widget.NEXT";
+    static final String ACT_SHUFFLE = "io.github.huny4daniel.musiccollection.widget.SHUFFLE";
+    static final String ACT_REPEAT = "io.github.huny4daniel.musiccollection.widget.REPEAT";
 
     private static final ExecutorService draw = Executors.newSingleThreadExecutor();
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -77,6 +84,7 @@ public class TapeWidget extends AppWidgetProvider {
                     .putFloat("p", dur > 0 ? Math.max(0f, Math.min(1f, p.getCurrentPosition() / (float) dur)) : 0f)
                     .putInt("no", p.getCurrentMediaItemIndex() + 1);
         }
+        if (p != null) e.putInt("repeat", p.getRepeatMode());
         e.putBoolean("playing", p != null && p.isPlaying()).apply();
         refresh(c, false);
     }
@@ -96,7 +104,8 @@ public class TapeWidget extends AppWidgetProvider {
             try {
                 SharedPreferences s = prefs(c);
                 String sig = s.getString("id", "") + "|" + s.getString("tape", "") + "|" + Math.round(s.getFloat("p", 0f) * 24)
-                        + "|" + s.getInt("no", 0) + "|" + s.getBoolean("playing", false);
+                        + "|" + s.getInt("no", 0) + "|" + s.getBoolean("playing", false)
+                        + "|" + s.getInt("repeat", 0) + "|" + Shuffle.on(c);
                 if (!force && sig.equals(lastSent)) return;
                 lastSent = sig;
                 RemoteViews v = build(c);
@@ -112,7 +121,7 @@ public class TapeWidget extends AppWidgetProvider {
     @Override public void onReceive(Context ctx, Intent intent) {
         super.onReceive(ctx, intent);
         String a = intent.getAction();
-        if (!ACT_PREV.equals(a) && !ACT_TOGGLE.equals(a) && !ACT_NEXT.equals(a)) return;
+        if (!ACT_PREV.equals(a) && !ACT_TOGGLE.equals(a) && !ACT_NEXT.equals(a) && !ACT_SHUFFLE.equals(a) && !ACT_REPEAT.equals(a)) return;
         Context c = ctx.getApplicationContext();
         PendingResult done = goAsync();
         SessionToken token = new SessionToken(c, new ComponentName(c, PlaybackService.class));
@@ -121,8 +130,8 @@ public class TapeWidget extends AppWidgetProvider {
             MediaController mc;
             try { mc = f.get(); } catch (Exception e) { Log.w(TAG, "controller", e); done.finish(); return; }
             Runnable finish = () -> main.postDelayed(() -> { mc.release(); done.finish(); }, 400);
-            Runnable act = () -> { command(mc, a); finish.run(); };
-            if (mc.getMediaItemCount() > 0) { act.run(); return; }
+            Runnable act = () -> { command(c, mc, a); finish.run(); };
+            if (mc.getMediaItemCount() > 0 || ACT_SHUFFLE.equals(a) || ACT_REPEAT.equals(a)) { act.run(); return; }
             // 앱이 꺼져 있었다면 재생 서비스가 지난 대기열을 되살릴 때까지 잠깐 기다린다
             final boolean[] ran = {false};
             Player.Listener l = new Player.Listener() {
@@ -136,8 +145,13 @@ public class TapeWidget extends AppWidgetProvider {
         }, c.getMainExecutor());
     }
 
-    private static void command(MediaController c, String a) {
-        if (ACT_PREV.equals(a)) c.seekToPrevious();
+    private static void command(Context ctx, MediaController c, String a) {
+        if (ACT_SHUFFLE.equals(a)) toggleShuffle(ctx, c);
+        else if (ACT_REPEAT.equals(a)) { // 끔 → 전체 반복 → 한 곡 반복
+            int m = c.getRepeatMode();
+            c.setRepeatMode(m == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL : m == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        }
+        else if (ACT_PREV.equals(a)) c.seekToPrevious();
         else if (ACT_NEXT.equals(a)) { if (c.hasNextMediaItem()) c.seekToNextMediaItem(); }
         else if (c.isPlaying()) c.pause();
         else {
@@ -145,6 +159,39 @@ public class TapeWidget extends AppWidgetProvider {
             if (c.getPlaybackState() == Player.STATE_IDLE) c.prepare();
             c.play();
         }
+    }
+
+    /** 화면의 셔플과 같은 방식: 지금 곡은 그대로 두고 나머지 순서를 섞거나, 원래 순서로 되돌린다 */
+    private static void toggleShuffle(Context ctx, MediaController c) {
+        int n = c.getMediaItemCount();
+        boolean on = Shuffle.on(ctx);
+        if (n == 0) { Shuffle.set(ctx, !on, "[]"); return; }
+        int cur = c.getCurrentMediaItemIndex();
+        String curId = c.getMediaItemAt(cur).mediaId;
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < n; i++) ids.add(c.getMediaItemAt(i).mediaId);
+        List<String> target = new ArrayList<>();
+        if (!on) {
+            List<String> rest = new ArrayList<>(ids); rest.remove(cur);
+            Collections.shuffle(rest);
+            target.add(curId); target.addAll(rest);
+            Shuffle.set(ctx, true, new JSONArray(ids).toString()); // 화면이 대기열 변경을 받기 전에 먼저 상태를 바꿔 둔다
+        } else {
+            try { JSONArray o = new JSONArray(Shuffle.orig(ctx)); for (int i = 0; i < o.length(); i++) target.add(o.getString(i)); } catch (Exception ignored) {}
+            if (!target.contains(curId)) { target.clear(); target.addAll(ids); }
+            Shuffle.set(ctx, false, "[]");
+        }
+        int ni = target.indexOf(curId);
+        if (cur + 1 < n) c.removeMediaItems(cur + 1, n);
+        if (cur > 0) c.removeMediaItems(0, cur);
+        if (ni > 0) c.addMediaItems(0, items(target.subList(0, ni)));
+        if (ni + 1 < target.size()) c.addMediaItems(items(target.subList(ni + 1, target.size())));
+    }
+
+    private static List<MediaItem> items(List<String> ids) {
+        List<MediaItem> out = new ArrayList<>();
+        for (String id : ids) out.add(new MediaItem.Builder().setMediaId(id).build());
+        return out;
     }
 
     private static PendingIntent key(Context c, String action, int code) {
@@ -161,6 +208,11 @@ public class TapeWidget extends AppWidgetProvider {
         v.setOnClickPendingIntent(R.id.w_prev, key(c, ACT_PREV, 1));
         v.setOnClickPendingIntent(R.id.w_toggle, key(c, ACT_TOGGLE, 2));
         v.setOnClickPendingIntent(R.id.w_next, key(c, ACT_NEXT, 3));
+        v.setOnClickPendingIntent(R.id.w_shuffle, key(c, ACT_SHUFFLE, 5));
+        v.setOnClickPendingIntent(R.id.w_repeat, key(c, ACT_REPEAT, 6));
+        v.setImageViewResource(R.id.w_shuffle, Shuffle.on(c) ? R.drawable.wm_ic_shuffle_on : R.drawable.wm_ic_shuffle_off);
+        int rm = s.getInt("repeat", Player.REPEAT_MODE_OFF);
+        v.setImageViewResource(R.id.w_repeat, rm == Player.REPEAT_MODE_ONE ? R.drawable.wm_ic_repeat1_on : rm == Player.REPEAT_MODE_ALL ? R.drawable.wm_ic_repeat_on : R.drawable.wm_ic_repeat_off);
         Intent open = new Intent(c, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         v.setOnClickPendingIntent(R.id.w_tape_area, PendingIntent.getActivity(c, 4, open, PendingIntent.FLAG_IMMUTABLE));
         return v;

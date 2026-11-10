@@ -51,11 +51,17 @@ android {
     }
 
     buildTypes {
+        // 디버그: 릴리즈(다른 서명)와 따로 설치되도록 패키지 이름 뒤에 .debug
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = false
             if (hasSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    buildFeatures { buildConfig = true }
 
     sourceSets["main"].assets.srcDir(webAssetsDir)
 

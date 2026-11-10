@@ -6,6 +6,14 @@
   column-gap: 26px; row-gap: 30px; padding: 6px 12px 16px 4px;
 }
 .lp { position: relative; display: block; min-width: 0; cursor: pointer; }
+/* 라이브러리의 앨범 가로 줄 */
+.lp-row {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 150px; column-gap: 26px;
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity;
+  margin: 0 -16px; padding: 6px 16px 18px; scroll-padding: 0 16px;
+}
+.lp-row::-webkit-scrollbar { display: none; }
+.lp-row > .lp { scroll-snap-align: start; }
 
 .lp-stage { position: relative; width: 86%; aspect-ratio: 1; }
 /* 선반: 옆 칸과 이어져 한 줄의 나무 선반처럼 */
@@ -86,5 +94,5 @@
   .lp-stage::after { left: -10px; right: calc(-16.3% - 10px); }
   .lp:hover .lp-disc { transform: none; }
   .lp.now .lp-disc { transform: translateX(30%); }
-  .hero-tape { width: min(100%, 360px); align-self: center; order: -1; margin-left: 0; }
+  .hero-tape { width: min(86%, 320px); align-self: center; order: -1; margin-left: 0; margin-right: 0; } /* 폰: 가운데 */
 }

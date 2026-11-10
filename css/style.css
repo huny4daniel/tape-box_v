@@ -199,6 +199,21 @@ img { display: block; }
 .play-fab:hover { transform: scale(1.04); }
 .play-fab .ic { width: 24px; height: 24px; }
 .actions { display: flex; align-items: center; gap: 18px; margin: 22px 0 10px; }
+.actions .play-fab { order: 99; margin-left: auto; } /* 노란 재생 버튼은 줄 오른쪽 끝에 */
+.actions > [data-act="list-shuffle"] { order: 98; margin-left: auto; } /* 셔플은 재생 버튼 바로 왼쪽 */
+.actions:has(> [data-act="list-shuffle"]) > .play-fab { margin-left: 0; }
+@media (max-width: 820px) {
+  /* 폰: 노란 재생 버튼은 제목 아래 설명 줄(곡 수·길이)과 같은 높이 오른쪽에, 작은 셔플은 그 왼쪽에 */
+  .hero + .actions { --mt: 22px; position: relative; margin-top: var(--mt); }
+  .hero + .actions > .play-fab { position: absolute; right: 0; top: calc(-1 * var(--mt) - 10px - 28px); margin: 0; }
+  .hero + .actions > [data-act="list-shuffle"] { position: absolute; right: 66px; top: calc(-1 * var(--mt) - 10px - 17px); width: 34px; height: 34px; } /* 작게, 재생 버튼 왼쪽 같은 높이 */
+  .hero + .actions > [data-act="list-shuffle"] .ic { width: 20px; height: 20px; }
+  /* 남은 버튼이 없으면 빈 줄이 생기지 않게 */
+  .hero + .actions:not(:has(> :not(.play-fab):not([data-act="list-shuffle"]))) { --mt: 0px; margin-bottom: 18px; }
+  /* 긴 제목이 오른쪽 버튼들에 겹치지 않게 */
+  .hero:has(+ .actions > .play-fab) .hero-text { padding-right: 68px; box-sizing: border-box; }
+  .hero:has(+ .actions > [data-act="list-shuffle"]) .hero-meta { padding-right: 46px; } /* 설명 줄이 셔플 버튼 밑으로 들어가지 않게 */
+}
 .actions .icon-btn { width: 40px; height: 40px; }
 .actions .icon-btn .ic { width: 26px; height: 26px; }
 
@@ -490,7 +505,7 @@ img { display: block; }
 
 /* ───────── 폰 화면 ───────── */
 @media (max-width: 820px) {
-  :root { --bar-h: 64px; }
+  :root { --bar-h: 72px; }
   body { font-size: 15px; }
   #app {
     display: block; padding: 0;
@@ -512,14 +527,14 @@ img { display: block; }
 
   #playerbar {
     position: fixed; left: 8px; right: 8px; bottom: calc(var(--tab-h) + var(--safe-b) + 4px); z-index: 21;
-    height: 58px; padding: 0 6px 0 8px; border-radius: 8px;
+    height: 66px; padding: 0 6px 0 8px; border-radius: 10px;
     display: flex; gap: 10px; overflow: hidden;
     background: hsl(var(--mini, 30 20% 22%));
     transition: background .5s;
   }
   #playerbar:empty { display: none; }
   .pb-now { flex: 1; gap: 10px; }
-  .pb-now .art { width: 42px; --s: 42px; }
+  .pb-now .art { width: 50px; --s: 50px; }
   .pb-now b { font-size: 14px; text-overflow: clip; }
   .pb-now b a { display: inline-block; }
   .pb-now b.mq-run { -webkit-mask-image: linear-gradient(90deg, transparent, #000 6px, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(90deg, transparent, #000 6px, #000 calc(100% - 12px), transparent); }
@@ -557,6 +572,10 @@ img { display: block; }
   .actions { margin: 16px 0 6px; }
   .shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 -8px; gap: 2px; }
   .shelf.scroll { grid-auto-columns: 140px; }
+  .shelf.artist-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } /* 아티스트 전체 보기: 3열 */
+  .shelf.artist-grid .card { padding: 6px; }
+  .shelf.artist-grid .card b { font-size: 13px; }
+  .shelf.artist-row { grid-auto-columns: 112px; }
   .card { padding: 8px; }
   .card .fab { display: none; }
   .greet h1 { font-size: 24px; }

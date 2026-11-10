@@ -66,6 +66,8 @@ public class MainActivity extends ComponentActivity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         app = App.get();
+        // 디버그 빌드면 PC 크롬의 chrome://inspect 로 웹 화면을 들여다볼 수 있게
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) WebView.setWebContentsDebuggingEnabled(true);
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#0D0C0B"));
         WebSettings s = web.getSettings();
@@ -76,10 +78,15 @@ public class MainActivity extends ComponentActivity {
         web.setWebViewClient(new WebViewClient());
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Bridge(), "NativeBridge");
-        setContentView(web);
+        // WebView 자체의 안쪽 여백은 웹 화면 배치에 반영되지 않아서(상태 표시줄 밑으로 그려짐),
+        // 바깥 틀에 여백을 줘 WebView가 시스템 막대를 뺀 자리에만 놓이게 한다
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame.setBackgroundColor(0xFF0D0C0B);
+        frame.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        setContentView(frame);
 
         // 시스템 막대만큼 안쪽으로 (targetSdk 35는 화면 끝까지 그린다)
-        web.setOnApplyWindowInsetsListener((v, insets) -> {
+        frame.setOnApplyWindowInsetsListener((v, insets) -> {
             android.graphics.Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
             v.setPadding(i.left, i.top, i.right, Math.max(i.bottom, ime.bottom));
@@ -187,9 +194,10 @@ public class MainActivity extends ComponentActivity {
             o.put("dur", d == C.TIME_UNSET ? 0 : d);
             int rm = c.getRepeatMode();
             o.put("repeat", rm == Player.REPEAT_MODE_ONE ? "one" : rm == Player.REPEAT_MODE_ALL ? "all" : "off");
+            o.put("shuffle", Shuffle.on(MainActivity.this));
             JSONArray ids = new JSONArray();
             for (int i = 0; i < c.getMediaItemCount(); i++) ids.put(c.getMediaItemAt(i).mediaId);
-            JSONObject full = new JSONObject(o.toString()).put("ids", ids);
+            JSONObject full = new JSONObject(o.toString()).put("ids", ids).put("orig", new JSONArray(Shuffle.orig(MainActivity.this)));
             stateJson = full.toString();
             sendToWeb(withIds ? stateJson : o.toString());
         } catch (Exception ignored) {}
@@ -253,6 +261,8 @@ public class MainActivity extends ComponentActivity {
         @JavascriptInterface public String getState() { return stateJson; }
         /** 홈 화면 위젯 카세트에 적을 테이프 이름 (지금 재생 중인 재생목록) */
         @JavascriptInterface public void setTapeName(String name) { TapeWidget.setTapeName(MainActivity.this, name); }
+        /** 화면에서 셔플을 켜고 끌 때 (위젯과 같은 상태를 보도록). 대기열을 바꾸기 전에 불린다 */
+        @JavascriptInterface public void setShuffleState(boolean on, String origJson) { Shuffle.set(MainActivity.this, on, origJson); }
 
         @JavascriptInterface public String getServerInfo() {
             try {

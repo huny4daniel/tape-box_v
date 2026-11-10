@@ -34,7 +34,8 @@ import fi.iki.elonen.NanoHTTPD;
  */
 public class WebServer extends NanoHTTPD {
     private static final String TAG = "WebServer";
-    public static final int PORT = 8642;
+    // 디버그 빌드는 릴리즈 앱과 함께 깔려 있어도 서로의 서버에 붙지 않도록 다른 포트를 쓴다
+    public static final int PORT = BuildConfig.DEBUG ? 8643 : 8642;
     private static final String JSON = "application/json; charset=utf-8";
     private static final String COOKIE = "mc_token";
 

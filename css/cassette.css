@@ -8,10 +8,14 @@
   --p: .3; /* 재생 진행도: 왼쪽 릴 → 오른쪽 릴로 테이프가 옮겨 감 */
   position: relative; aspect-ratio: 1.6; border-radius: 1.6cqw; cursor: pointer;
   container-type: inline-size;
-  transition: transform .18s cubic-bezier(.2,.8,.2,1), filter .18s;
-  filter: drop-shadow(0 8px 14px rgba(0,0,0,.5));
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s;
+  box-shadow: 0 8px 14px rgba(0,0,0,.45); /* filter: drop-shadow 보다 훨씬 가볍다 (테이프가 많을 때 렉) */
 }
-.tape-grid .tape:hover, .tape-row .tape:hover { transform: translateY(-4px); filter: drop-shadow(0 14px 22px rgba(0,0,0,.6)); }
+.tape-grid .tape:hover, .tape-row .tape:hover { transform: translateY(-4px); box-shadow: 0 14px 22px rgba(0,0,0,.55); }
+.lazy-more { grid-column: 1 / -1; height: 1px; }
+/* 목록·줄에 늘어선 작은 테이프는 그리기 가볍게: 3px 점무늬와 사진 색 보정 필터를 빼고 색 덧칠만 (재생 화면의 큰 테이프는 그대로) */
+.tape:not(.big) .tape-skin img { filter: none !important; }
+.tape:not(.big) .tape-skin::after { background: linear-gradient(rgba(255,244,222,.16), rgba(255,244,222,0) 40%, rgba(50,32,15,.26)), rgba(120,90,50,.08); }
 
 /* 몸체: 연기색 반투명 플라스틱 + 나사 */
 .tape-shell {
@@ -66,7 +70,7 @@
 }
 /* A면 표시 자리의 하트: 라벨 스티커에 펜으로 그린 듯. 아끼면 같은 펜으로 까맣게 칠한 것처럼 */
 .tape-heart {
-  position: absolute; z-index: 3; top: 3.4cqw; right: 3.6cqw; width: 5.4cqw; aspect-ratio: 1; border-radius: 50%;
+  position: absolute; z-index: 3; top: 3.2cqw; right: 3.4cqw; width: 6.6cqw; aspect-ratio: 1; border-radius: 50%;
   display: grid; place-items: center; padding: 0; cursor: pointer;
   background: rgba(238,229,210,.92); box-shadow: 0 .2cqw .4cqw rgba(0,0,0,.3);
   transition: transform .15s;
@@ -138,7 +142,8 @@
 .tape-row > * { scroll-snap-align: start; }
 
 /* 재생목록 페이지 위쪽의 테이프 */
-.hero-tape { width: 380px; flex: none; order: 2; margin-left: auto; margin-right: clamp(0px, 7vw, 120px); } /* 제목 오른쪽, 끝에서 조금 안쪽 */
+.hero-tape { width: 340px; flex: none; order: 2; margin-left: auto; margin-right: clamp(0px, 5vw, 80px); } /* 제목 오른쪽, 끝에서 조금 안쪽 */
+.hero:has(.hero-tape) .hero-text { flex: 1; } /* 제목이 남는 폭을 다 써서 글자 중간에서 끊기지 않게 */
 .hero-tape .tape { filter: drop-shadow(0 18px 34px rgba(0,0,0,.55)); }
 .hero:has(.hero-tape) .hero-text { padding-left: clamp(0px, 4vw, 64px); } /* 제목을 왼쪽 끝에서 조금 안쪽으로 */
 
@@ -171,7 +176,8 @@
 }
 @keyframes np-in { from { transform: translateY(6%); opacity: 0; } }
 .np-bg { position: absolute; inset: -8%; background: var(--ph, #222); }
-.np-bg img { width: 100%; height: 100%; object-fit: cover; filter: blur(70px) saturate(1.4) brightness(.5); transform: scale(1.15); }
+.np-bg { will-change: transform; contain: strict; } /* 따로 한 장으로 그려 두고 위의 움직임 때문에 다시 흐리지 않게 */
+.np-bg img { width: 100%; height: 100%; object-fit: cover; filter: blur(40px) saturate(1.4) brightness(.5); transform: scale(1.15); }
 .np-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(hsl(var(--fp, 30 25% 20%) / .45), rgba(13,12,11,.82) 70%, #0d0c0b); }
 
 .np-top { position: relative; z-index: 1; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; height: calc(64px + env(safe-area-inset-top, 0px)); padding: env(safe-area-inset-top, 0px) 20px 0; }
@@ -186,10 +192,13 @@
 .np-tape-wrap { width: min(530px, 100%, calc((100vh - 380px) * 1.28)); }
 .np-tape-wrap .tape { filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)); }
 .np-memo { display: none; } /* 가사 메모지는 폰에서만 */
-.np-side-tape { display: none; } /* 재생목록 시트 위 테이프도 폰에서만 */
+.np-gap { display: none; }
+.np-top-gap { width: 40px; }
+.np-sheet-bg { display: none; } /* 재생목록 시트 뒤 어둡게 가리기는 폰에서만 (PC에서는 칸을 차지해 배치가 깨진다) */
+.np-well.under { display: none; } /* 테이프 뒤 데크는 폰에서만 */
 .np-tape-wrap .tape.now .tape-shell { box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.14), inset 0 -.4cqw 0 rgba(0,0,0,.45); }
 .np-tape-wrap .tape:active { transform: scale(.99); }
-.np-meta, .np-seek, .np-ctrl, .np-vol { width: min(660px, 100%); }
+.np-meta, .np-seek, .np-ctrl { width: min(660px, 100%); }
 .np-meta { display: flex; align-items: center; gap: 14px; margin-top: 30px; }
 .np-meta > div { flex: 1; min-width: 0; }
 .np-meta b { display: block; font-size: 28px; font-weight: 900; letter-spacing: -.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -204,22 +213,12 @@
 .np-ctrl .icon-btn { width: 48px; height: 48px; color: var(--text); }
 .np-ctrl .icon-btn .ic { width: 24px; height: 24px; }
 .np-ctrl .icon-btn.on { color: var(--accent); }
-/* 아래 줄: 왼쪽 볼륨 · 오른쪽 재생목록 (PC는 재생목록이 옆에 늘 보여서 볼륨만 왼쪽 아래 구석에) */
-.np-foot { display: contents; }
-.np-foot-q { display: none; }
-.np-foot-btn { width: 44px; height: 44px; border-radius: 50%; color: var(--text-2); }
-.np-foot-btn .ic { width: 22px; height: 22px; }
-.np-foot-btn:active { background: rgba(255,255,255,.1); }
+/* 곡 제목 줄 오른쪽의 재생목록 버튼 (폰만. PC는 옆에 재생목록이 늘 보인다) */
+.np-q-btn { display: none; flex: none; color: var(--text-2); }
+.np-q-btn:active { background: rgba(255,255,255,.1); }
 .np-play { width: 66px; height: 66px; border-radius: 50%; background: var(--text); color: var(--bg); display: grid; place-items: center; transition: transform .12s; }
 .np-play:hover { transform: scale(1.05); }
 .np-play .ic { width: 28px; height: 28px; }
-/* 볼륨: 왼쪽 아래 버튼, 누르면 막대가 떠오른다 */
-.np-vol { position: absolute; z-index: 3; left: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); width: auto; display: flex; align-items: center; gap: 4px; color: var(--text-2); }
-.np-vol.open > .icon-btn { color: var(--text); background: rgba(255,255,255,.1); }
-.np-vol-pop { position: absolute; left: calc(100% + 6px); top: 50%; margin-top: -20px; display: flex; align-items: center; height: 40px; padding: 0 16px; border-radius: 20px; background: rgba(20,18,16,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 8px 24px rgba(0,0,0,.4);
-  opacity: 0; transform: translateX(-8px) scale(.96); transform-origin: left center; pointer-events: none; transition: opacity .15s, transform .15s; }
-.np-vol.open .np-vol-pop { opacity: 1; transform: none; pointer-events: auto; }
-.np-vol .range { flex: none; width: 160px; }
 
 .np-side { display: flex; flex-direction: column; min-height: 0; background: rgba(0,0,0,.3); border-radius: 14px; overflow: hidden; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
 .np-tabs { display: flex; align-items: center; gap: 6px; padding: 14px 14px 8px; }
@@ -234,28 +233,187 @@
 .np-side-body .lyrics .ln { font-size: 20px; }
 
 /* ───────── 폰 ───────── */
+
+/* ───────── 재생 화면의 테이프 놀이 (PC·폰 공통): 누르면 메모지 가사, 위로 끌면 꺼내기, 골라 꽂기 ───────── */
+.np-tape-wrap { position: relative; }
+.np-tape-wrap > .tape { touch-action: none; transform-origin: 92% 100%; z-index: 1; }
+.np-well.under { display: block; position: absolute; inset: 0; width: 100%; margin: 0; z-index: 0; }
+.np-tape-wrap.memo > .np-well.under { display: none; }
+.np-tape-wrap > .tape.dragging { transition: none; }
+.np-tape-wrap.inserting > .tape { animation: tape-in .6s cubic-bezier(.25,.8,.35,1); }
+@keyframes tape-in { from { transform: translateY(-60%) rotate(14deg); } 55% { transform: translateY(-3%) rotate(6deg); } 80% { transform: rotate(-.6deg); } }
+.np-well {
+  position: relative; flex: none; width: min(530px, 100%); aspect-ratio: 1.6; border-radius: 14px;
+  background: linear-gradient(#121010, #1c1916 70%, #23201c);
+  box-shadow: inset 0 8px 22px rgba(0,0,0,.85), inset 0 0 0 2px rgba(255,255,255,.04), 0 1px 0 rgba(255,255,255,.07);
+}
+.spindle {
+  position: absolute; top: 45.4%; width: 8.5%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%);
+  background: radial-gradient(circle, #d6d0c5 0 58%, #a59f95 59% 62%, transparent 63%), repeating-conic-gradient(#d6d0c5 0 13deg, transparent 13deg 60deg);
+  box-shadow: 0 0 0 5px #2a2521, 0 0 0 6px rgba(255,255,255,.06), 0 4px 8px rgba(0,0,0,.6);
+}
+.spindle::after { content: ""; position: absolute; inset: 36%; border-radius: 50%; background: #8d877e; box-shadow: inset 0 1px 1px rgba(0,0,0,.4); }
+.spindle.l { left: 32.7%; }
+.spindle.r { left: 67.3%; }
+.np-well-heads {
+  position: absolute; left: 21%; right: 21%; bottom: 0; height: 15%; display: flex; align-items: center; justify-content: space-around; padding: 0 9%;
+  background: linear-gradient(#2c2824, #1a1714); clip-path: polygon(5% 0, 95% 0, 100% 100%, 0 100%);
+}
+.np-well-heads i { width: 9%; aspect-ratio: 1.4; border-radius: 2px; background: #8d877e; opacity: .55; }
+
+/* 테이프 고르기 */
+.np-main:has(.np-eject) { grid-template-columns: minmax(0, 1fr); }
+.np-eject { justify-content: center; overflow: visible; }
+.np-shelf-search {
+  align-self: center; width: min(520px, 100%); display: flex; align-items: center; gap: 10px; height: 44px; margin: 0 0 18px; padding: 0 14px;
+  border-radius: 22px; background: rgba(255,255,255,.08); color: var(--text-2);
+}
+.np-shelf-search .ic { width: 18px; height: 18px; flex: none; }
+.np-shelf-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 15px; }
+.np-shelf-search input::placeholder { color: var(--text-3); }
+.np-shelf-tape[hidden] { display: none; }
+.np-eject-hint { margin: 0 0 6px; text-align: center; font-family: "Nanum Pen Script", var(--font); font-size: 26px; color: var(--text-2); }
+.np-shelf {
+  align-self: stretch; display: flex; gap: 22px; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scrollbar-width: none; padding: 14px calc(50% - 160px) 26px;
+}
+.np-shelf::-webkit-scrollbar { display: none; }
+.np-shelf-tape { flex: none; width: 320px; scroll-snap-align: center; cursor: pointer; touch-action: pan-x; }
+.tape-ghost { position: fixed; z-index: 10; margin: 0; pointer-events: none; transform-origin: 92% 100%; filter: drop-shadow(0 20px 28px rgba(0,0,0,.6)); }
+.np-shelf-tape .tape { filter: drop-shadow(0 12px 18px rgba(0,0,0,.55)); transition: transform .15s; }
+.np-shelf-tape:active .tape { transform: translateY(6px) scale(.98); }
+
+/* 메모지 가사 (카세트 자리) */
+.np-tape-wrap.memo > .tape { display: none; }
+.np-tape-wrap.memo .np-memo { display: block; }
+.np-memo { position: relative; height: min(58vh, 520px); cursor: pointer; animation: memo-in .32s cubic-bezier(.2,.8,.3,1); }
+.np-memo-page { height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; position: relative; }
+.np-memo-page::-webkit-scrollbar { display: none; }
+.np-memo .lyrics { position: relative; }
+.memo-theme { position: absolute; z-index: 2; top: 6px; right: 6px; width: 36px; height: 36px; border-radius: 50%; }
+.memo-theme .ic { width: 19px; height: 19px; }
+.np-memo.paper { --lh: 30px; transform: rotate(-.8deg); border-radius: 3px 3px 6px 6px; box-shadow: 0 18px 40px rgba(0,0,0,.5); animation-name: memo-in-paper; }
+.np-memo.paper .np-memo-page {
+  border-radius: inherit;
+  background-color: #f5efdc;
+  background-image:
+    linear-gradient(90deg, transparent 38px, rgba(214,92,92,.55) 38px 39.5px, transparent 39.5px),
+    repeating-linear-gradient(transparent 0 calc(var(--lh) - 1px), rgba(92,128,180,.32) calc(var(--lh) - 1px) var(--lh));
+  background-attachment: local;
+  box-shadow: inset 0 0 40px rgba(160,130,70,.12);
+}
+.np-memo.paper .memo-theme { color: rgba(31,45,77,.6); background: rgba(245,239,220,.85); }
+.np-memo.paper .lyrics, .np-memo.paper .lyrics.plain { padding: var(--lh) 44px 45% 50px; }
+.np-memo.paper .lyrics .ln, .np-memo.paper .lyrics.plain .ln, .np-memo.paper .lyrics .note {
+  margin: 0; min-height: var(--lh); line-height: var(--lh);
+  font-family: "Nanum Pen Script", var(--font); font-size: 22px; font-weight: 400; letter-spacing: 0;
+  color: rgba(31,45,77,.5); transition: color .3s; width: fit-content; max-width: 100%;
+}
+.np-memo.paper .lyrics .ln.past { color: rgba(31,45,77,.75); }
+.np-memo.paper .lyrics .ln.cur { color: #16213d; }
+.np-memo.paper .lyrics .ln.cur > span { background: linear-gradient(transparent 36%, rgba(255,214,70,.6) 36% 90%, transparent 90%); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.np-memo.paper .lyrics .ln:hover { color: #16213d; }
+.np-memo.paper .lyrics.plain .ln { color: #1f2d4d; }
+.np-memo.paper .lyrics .note { color: rgba(31,45,77,.55); font-size: 18px; }
+.np-memo.plain .np-memo-page { border-radius: 14px; background: rgba(0,0,0,.28); }
+.np-memo.plain .memo-theme { color: var(--text-2); background: rgba(0,0,0,.35); }
+.np-memo.plain .lyrics, .np-memo.plain .lyrics.plain { padding: 22px 48px 45% 20px; }
+.np-memo.plain .lyrics .ln { font-size: 21px; margin-bottom: 14px; width: fit-content; max-width: 100%; }
+.np-memo.plain .lyrics.plain .ln { font-size: 17px; margin-bottom: 8px; }
+@keyframes memo-in { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; } }
+@keyframes memo-in-paper { from { opacity: 0; transform: rotate(-4deg) translateY(16px) scale(.96); } to { opacity: 1; transform: rotate(-.8deg); } }
+
+/* 오른쪽(폰은 아래 시트) 재생목록: 가사는 메모지로 보므로 탭 없이 위에 테이프 */
+.np-tabs { display: none; }
+.np-side-tape { display: block; flex: none; width: min(62%, 240px); margin: 18px auto 10px; pointer-events: none; }
+
+/* PC 오른쪽 패널의 가사 메모지: 패널을 꽉 채운다 */
+.np-memo.panel-memo { display: block; height: 100%; transform: none; border-radius: 0; box-shadow: none; animation: none; cursor: auto; }
+.np-memo.panel-memo .lyrics { padding-bottom: 50%; }
+/* PC: 재생 화면의 제목·재생바·버튼 폭을 테이프 폭에 맞춘다 */
+@media (min-width: 821px) {
+  .np-meta, .np-seek, .np-ctrl { width: min(530px, 100%); }
+  .np-tape-wrap.memo { width: min(530px, 100%); }
+  .np-memo { height: auto; aspect-ratio: 1.6; } /* 테이프와 같은 크기라 메모지를 열고 닫아도 아래 버튼들이 움직이지 않는다 */
+}
+
 @media (max-width: 820px) {
-  .tape-grid { grid-template-columns: 1fr; gap: 14px; }
-  .tape-grid .tape:hover, .tape-row .tape:hover { transform: none; filter: drop-shadow(0 8px 14px rgba(0,0,0,.5)); }
+  .tape-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; } /* 나의 테이프 전체 보기: 2열 */
+  .tape-grid .tape-new { aspect-ratio: 1.6; font-size: 12px; gap: 4px; }
+  .tape-grid .tape:hover, .tape-row .tape:hover { transform: none; box-shadow: 0 8px 14px rgba(0,0,0,.45); }
+  .np-side { backdrop-filter: none; -webkit-backdrop-filter: none; } /* 폰 재생목록 시트: 흐림 효과 대신 불투명 바탕 (가볍게) */
   .tape-row { grid-auto-columns: min(54%, 200px); gap: 10px; margin: 0 -16px; padding: 6px 16px 14px; scroll-padding: 0 16px; scroll-snap-type: x mandatory; }
   .hero:has(.hero-tape) .hero-text { padding-left: 0; }
 
-  #fullplayer { overflow-y: auto; }
-  .np-top { position: sticky; top: 0; padding: env(safe-area-inset-top, 0px) 12px 0; height: calc(56px + env(safe-area-inset-top, 0px)); }
+  #fullplayer { overflow: hidden; overscroll-behavior: none; } /* 재생 화면은 스크롤 없이 한 화면에 고정 */
+  .np-top { position: relative; padding: env(safe-area-inset-top, 0px) 12px 0; height: calc(56px + env(safe-area-inset-top, 0px)); }
   .np-main { display: block; padding: 0 20px; } /* 재생목록이 시트로 빠져서 내용이 화면에 맞으면 스크롤이 생기지 않는다 */
-  .np-deck { min-height: calc(100vh - 56px - env(safe-area-inset-top, 0px) - 20px); min-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px) - 20px); justify-content: flex-start; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
-  /* 카세트는 남는 자리 가운데에 그대로, 제목·재생바·버튼은 화면 아래부터 쌓는다 */
-  .np-tape-wrap { width: 90%; margin: auto 0; padding-bottom: 48px; }
-  .np-tape-wrap.memo { width: 78%; }
+  .np-main { flex: 1; min-height: 0; }
+  .np-deck { height: 100%; min-height: 0; overflow: visible; /* 꺼내고 꽂을 때 테이프가 잘리지 않게 (스크롤은 #fullplayer에서 막는다) */ justify-content: flex-start; padding-bottom: calc(114px + env(safe-area-inset-bottom, 0px)); } /* 아래 정보 묶음을 바닥에서 조금 띄운다 */
+  /* 제목·재생바·버튼은 화면 아래부터 쌓고, 카세트는 위쪽 막대(접기·더보기) 아래와 곡 제목 위 사이의 한가운데에 */
+  .np-tape-wrap { width: min(98%, calc((100dvh - 400px) * 1.6)); margin: 0; flex: none; }
+  /* 남는 높이를 카세트 위 1 : 아래 2로 나눠 조금 위쪽에 */
+  .np-deck::before { content: ""; flex: 1 1 0; }
+  .np-tape-wrap { position: relative; }
+  .np-tape-wrap > .tape { touch-action: none; transform-origin: 92% 100%; z-index: 1; } /* 위로 끌어 올려 꺼내기 (오른쪽 아래를 축으로 왼쪽이 들린다) */
+  .np-well.under { display: block; position: absolute; inset: 0; width: 100%; margin: 0; z-index: 0; } /* 테이프 바로 뒤의 데크 */
+  .np-tape-wrap.memo > .np-well.under { display: none; }
+  .np-tape-wrap > .tape.dragging { transition: none; }
+  .np-tape-wrap.inserting > .tape { animation: tape-in .6s cubic-bezier(.25,.8,.35,1); }
+  /* 꽂기: 기운 채 내려와서 오른쪽부터 닿고, 왼쪽이 마저 내려앉는다 */
+  @keyframes tape-in { from { transform: translateY(-60%) rotate(14deg); } 55% { transform: translateY(-3%) rotate(6deg); } 80% { transform: rotate(-.6deg); } }
+
+  /* 꺼낸 뒤 빈 데크: 위에 테이프 선반, 아래에 테이프를 꽂는 두 축 */
+  .np-eject { justify-content: flex-start; padding-top: 9vh; overflow: visible; } /* 선반은 화면 위쪽에 */
+  .np-eject::before { display: none; }
+  .np-shelf-search {
+    width: auto; align-self: stretch; display: flex; align-items: center; gap: 10px; height: 44px; margin: 0 0 18px; padding: 0 14px;
+    border-radius: 22px; background: rgba(255,255,255,.08); color: var(--text-2);
+  }
+  .np-shelf-search .ic { width: 18px; height: 18px; flex: none; }
+  .np-shelf-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 15px; }
+  .np-shelf-search input::placeholder { color: var(--text-3); }
+  .np-shelf-tape[hidden] { display: none; }
+  .np-eject-hint { margin: 0 0 6px; text-align: center; font-family: "Nanum Pen Script", var(--font); font-size: 24px; color: var(--text-2); }
+  .np-shelf {
+    align-self: stretch; margin: 0 -20px; display: flex; gap: 14px; overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory; scrollbar-width: none;
+    padding: 14px calc(50% - min(37vw, 160px)) 26px;
+  }
+  .np-shelf::-webkit-scrollbar { display: none; }
+  .np-shelf-tape { flex: none; width: min(74vw, 320px); scroll-snap-align: center; cursor: pointer; touch-action: pan-x; } /* 옆으로는 선반 넘기기, 아래로는 끌어 꽂기 */
+  .tape-ghost { position: fixed; z-index: 10; margin: 0; pointer-events: none; transform-origin: 92% 100%; filter: drop-shadow(0 20px 28px rgba(0,0,0,.6)); }
+  .np-shelf-tape .tape { filter: drop-shadow(0 12px 18px rgba(0,0,0,.55)); transition: transform .15s; }
+  .np-shelf-tape:active .tape { transform: translateY(6px) scale(.98); }
+  .np-well {
+    width: min(98%, calc((100dvh - 400px) * 1.6)); margin-top: 8px;
+    background: linear-gradient(#121010, #1c1916 70%, #23201c);
+    box-shadow: inset 0 8px 22px rgba(0,0,0,.85), inset 0 0 0 2px rgba(255,255,255,.04), 0 1px 0 rgba(255,255,255,.07);
+  }
+  /* 테이프 릴 자리(카세트 그림과 같은 위치)에 톱니 달린 축 */
+  .spindle {
+    position: absolute; top: 45.4%; width: 8.5%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%);
+    /* 가운데 둥근 축 + 가장자리로 튀어나온 톱니 6개 */
+    background: radial-gradient(circle, #d6d0c5 0 58%, #a59f95 59% 62%, transparent 63%), repeating-conic-gradient(#d6d0c5 0 13deg, transparent 13deg 60deg);
+    box-shadow: 0 0 0 5px #2a2521, 0 0 0 6px rgba(255,255,255,.06), 0 4px 8px rgba(0,0,0,.6);
+  }
+  .spindle::after { content: ""; position: absolute; inset: 36%; border-radius: 50%; background: #8d877e; box-shadow: inset 0 1px 1px rgba(0,0,0,.4); }
+  .spindle.l { left: 32.7%; }
+  .spindle.r { left: 67.3%; }
+  .np-well-heads {
+    position: absolute; left: 21%; right: 21%; bottom: 0; height: 15%; display: flex; align-items: center; justify-content: space-around; padding: 0 9%;
+    background: linear-gradient(#2c2824, #1a1714); clip-path: polygon(5% 0, 95% 0, 100% 100%, 0 100%);
+  }
+  .np-well-heads i { width: 9%; aspect-ratio: 1.4; border-radius: 2px; background: #8d877e; opacity: .55; }
+  .np-gap { display: block; flex: 1.6 1 0; }
+  .np-tape-wrap.memo { width: 84%; display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; margin: 12px 0 72px; } .np-deck:has(.memo) .np-gap { flex: 1 1 0; } /* 화면이 작으면 메모지가 줄어든다 */
   .np-tape-wrap.memo > .tape { display: none; }
   .np-tape-wrap.memo .np-memo { display: block; }
 
-  .np-tabs [data-v="lyrics"] { display: none; } /* 폰 가사는 카세트 자리에서 */
-  .np-tabs { display: none; } /* 폰 재생목록 시트: 탭 대신 위에 테이프 */
-  .np-side-tape { display: block; flex: none; width: min(62%, 260px); margin: 14px auto 10px; pointer-events: none; }
+  .np-side-tape { width: min(62%, 260px); margin: 14px auto 10px; }
 
   /* 가사 상자 (카세트 자리) */
-  .np-memo { position: relative; height: clamp(285px, calc(100dvh - 385px), 600px); cursor: pointer; animation: memo-in .32s cubic-bezier(.2,.8,.3,1); }
+  .np-memo { position: relative; flex: 0 1 auto; min-height: 180px; height: clamp(225px, calc(100dvh - 445px), 540px); /* 줄인 60px은 아래 여백(.memo margin-bottom)으로 넘겨 위쪽 위치는 그대로 */ cursor: pointer; animation: memo-in .32s cubic-bezier(.2,.8,.3,1); }
   .np-memo-page { height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; position: relative; }
   .np-memo-page::-webkit-scrollbar { display: none; }
   .np-memo .lyrics { position: relative; }
@@ -263,7 +421,7 @@
   .memo-theme .ic { width: 19px; height: 19px; }
 
   /* 메모지: 줄 노트에 펜으로 적은 느낌 */
-  .np-memo.paper { --lh: 34px; transform: rotate(-.8deg); border-radius: 3px 3px 6px 6px; box-shadow: 0 18px 40px rgba(0,0,0,.5); }
+  .np-memo.paper { --lh: 30px; transform: rotate(-.8deg); border-radius: 3px 3px 6px 6px; box-shadow: 0 18px 40px rgba(0,0,0,.5); }
   .np-memo.paper .np-memo-page {
     border-radius: inherit;
     background-color: #f5efdc;
@@ -277,7 +435,7 @@
   .np-memo.paper .lyrics, .np-memo.paper .lyrics.plain { padding: var(--lh) 44px 45% 50px; }
   .np-memo.paper .lyrics .ln, .np-memo.paper .lyrics.plain .ln, .np-memo.paper .lyrics .note {
     margin: 0; min-height: var(--lh); line-height: var(--lh);
-    font-family: "Nanum Pen Script", var(--font); font-size: 27px; font-weight: 400; letter-spacing: 0;
+    font-family: "Nanum Pen Script", var(--font); font-size: 22px; font-weight: 400; letter-spacing: 0;
     color: rgba(31,45,77,.5); transition: color .3s;
     width: fit-content; max-width: 100%; /* 글자 부분만 눌리게 (빈 곳은 가사 닫기) */
   }
@@ -286,7 +444,7 @@
   .np-memo.paper .lyrics .ln.cur > span { background: linear-gradient(transparent 36%, rgba(255,214,70,.6) 36% 90%, transparent 90%); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
   .np-memo.paper .lyrics .ln:hover { color: #16213d; }
   .np-memo.paper .lyrics.plain .ln { color: #1f2d4d; }
-  .np-memo.paper .lyrics .note { color: rgba(31,45,77,.55); font-size: 23px; }
+  .np-memo.paper .lyrics .note { color: rgba(31,45,77,.55); font-size: 18px; }
 
   /* 일반 가사 */
   .np-memo.plain .np-memo-page { border-radius: 14px; background: rgba(0,0,0,.28); }
@@ -297,14 +455,12 @@
   @keyframes memo-in { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; } }
   .np-memo.paper { animation-name: memo-in-paper; }
   @keyframes memo-in-paper { from { opacity: 0; transform: rotate(-4deg) translateY(16px) scale(.96); } to { opacity: 1; transform: rotate(-.8deg); } }
-  .np-meta { margin-top: auto; }
+  .np-meta { margin-top: 0; }
   .np-meta b { font-size: 22px; }
   .np-ctrl { justify-content: space-between; gap: 0; }
-  .np-foot { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 6px; }
-  .np-foot-q { display: grid; }
-  .np-foot .np-vol { position: relative; left: auto; bottom: auto; }
+  .np-q-btn { display: grid; margin-right: -8px; }
   /* 재생목록은 스크롤로 내려가지 않고, 버튼을 누르면 아래에서 올라오는 시트로 */
-  .np-sheet-bg { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .np-sheet-bg { display: block; position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .25s; }
   .np-side {
     position: fixed; z-index: 5; left: 0; right: 0; bottom: 0; height: min(90vh, calc(100dvh - 56px - env(safe-area-inset-top, 0px)));
     border-radius: 18px 18px 0 0; background: rgba(22,20,18,.92); padding-bottom: env(safe-area-inset-bottom, 0px);

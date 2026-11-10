@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 디버그 빌드: 릴리즈 앱과 나란히 설치되므로 이름으로 구분한다 -->
+<resources>
+    <string name="app_name">소장곡 (디버그)</string>
+</resources>

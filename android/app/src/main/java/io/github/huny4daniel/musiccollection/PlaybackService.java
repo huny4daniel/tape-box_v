@@ -78,6 +78,7 @@ public class PlaybackService extends MediaSessionService {
                 TapeWidget.push(PlaybackService.this, player);
             }
             @Override public void onTimelineChanged(@NonNull androidx.media3.common.Timeline t, int reason) { saveQueue(); }
+            @Override public void onRepeatModeChanged(int mode) { saveQueue(); TapeWidget.push(PlaybackService.this, player); }
         });
         h.postDelayed(tick, 5000);
         restoreQueue();

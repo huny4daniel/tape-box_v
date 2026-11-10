@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 위젯 아래 워크맨 건반: 이전 · 재생/일시정지 · 다음 -->
+<!-- 위젯 아래 워크맨 건반: 셔플 · 이전 · 재생/일시정지 · 다음 · 반복 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="46dp"
     android:layout_marginTop="8dp" android:orientation="horizontal">
+    <ImageButton android:id="@+id/w_shuffle" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="0.8"
+        android:layout_marginEnd="6dp" android:background="@drawable/wm_key" android:src="@drawable/wm_ic_shuffle_off"
+        android:scaleType="center" android:paddingBottom="4dp" android:contentDescription="셔플" />
     <ImageButton android:id="@+id/w_prev" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
         android:layout_marginEnd="6dp" android:background="@drawable/wm_key" android:src="@drawable/wm_ic_prev"
         android:scaleType="center" android:paddingBottom="4dp" android:contentDescription="이전 곡" />
@@ -10,6 +13,9 @@
         android:layout_marginEnd="6dp" android:background="@drawable/wm_key_play" android:src="@drawable/wm_ic_play"
         android:scaleType="center" android:paddingBottom="4dp" android:contentDescription="재생 / 일시정지" />
     <ImageButton android:id="@+id/w_next" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
-        android:background="@drawable/wm_key" android:src="@drawable/wm_ic_next"
+        android:layout_marginEnd="6dp" android:background="@drawable/wm_key" android:src="@drawable/wm_ic_next"
         android:scaleType="center" android:paddingBottom="4dp" android:contentDescription="다음 곡" />
+    <ImageButton android:id="@+id/w_repeat" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="0.8"
+        android:background="@drawable/wm_key" android:src="@drawable/wm_ic_repeat_off"
+        android:scaleType="center" android:paddingBottom="4dp" android:contentDescription="반복" />
 </LinearLayout>
