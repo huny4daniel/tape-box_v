@@ -304,7 +304,7 @@
 
   // ── LP 진열대: 앨범 하나 = 재킷 한 장. 그 앨범의 곡을 듣는 중이면 레코드가 빠져나와 돈다 ──
   const albumKeyOf = (t) => t.albumKey || "none:" + t.album;
-  function lpAlbum(a) {
+  function lpAlbum(a, sub) {
     const now = P && P.current && albumKeyOf(P.current) === a.key;
     const lv = tierOf(Math.round(a.plays / Math.max(1, a.tracks.length))).level; // 곡당 평균 재생으로 손때
     const url = a.key && !a.key.startsWith("none:") ? API.artUrl(a.key, 300) : "";
@@ -315,7 +315,7 @@
         <div class="lp-disc"><div class="lp-center" style="${ph}">${img}</div></div>
         <div class="lp-sleeve" style="${ph}" data-ini="${esc(U.initial(a.title))}">${img}</div>
       </div>
-      <div class="lp-meta"><b>${esc(a.title)}</b><span>${esc((a.year ? a.year + " · " : "") + a.artist)}</span></div>
+      <div class="lp-meta"><b>${esc(a.title)}</b><span>${esc(sub != null ? sub : (a.year ? a.year + " · " : "") + a.artist)}</span></div>
     </a>`;
   }
   // ── 목록 화면(곡·테이프·앨범·아티스트) 위의 검색창: 제목·이름, 초성으로 걸러 낸다 ──
@@ -345,7 +345,7 @@
     },
     albums() {
       const hit = qTest(listQ.albums); let A = sortedAlbums(); if (hit) A = A.filter(hit);
-      const box = $("#lib-grid"); if (box) box.innerHTML = A.length ? `<div class="lp-grid">${lazyItems(A, lpAlbum)}</div>` : noHit("albums");
+      const box = $("#lib-grid"); if (box) box.innerHTML = A.length ? `<div class="lp-grid">${lazyItems(A, (a) => lpAlbum(a))}</div>` : noHit("albums");
     },
     artists() {
       const hit = qTest(listQ.artists); let R = sortedArtists(); if (hit) R = R.filter(hit);
@@ -511,7 +511,7 @@
         <span class="dimmer" style="font-size:13px">${U.fmtDateKo(r.first)}, 「${esc(firstT.title)}」로 처음 만났어요</span>
       </div>
       ${hot.length ? section("내가 많이 들은 곡", null, trackList("artist-hot", hot, "index")) : ""}
-      ${section("앨범", null, `<div class="shelf ${albums.length > 6 ? "scroll" : ""}">${albums.map((a) => albumCard(a, (a.year || "") + " · 소장 " + a.tracks.length + "곡")).join("")}</div>`)}
+      ${section("앨범", null, `<div class="lp-row">${albums.map((a) => lpAlbum(a, (a.year ? a.year + " · " : "") + "소장 " + a.tracks.length + "곡")).join("")}</div>`)}
       ${section("소장한 모든 곡", "수집한 순서대로", trackList("artist-all", T, "collection"))}
     </div>`;
   };
@@ -731,7 +731,7 @@
     return `<div class="page">
       <div class="section-head" style="margin-top:4px"><h2 style="font-size:26px">라이브러리</h2><button class="icon-btn" data-act="new-playlist" title="새 재생목록"><i class="ic ic-plus"></i></button></div>
       ${section("나의 테이프", `${U.num(tapes.length)}개`, `<div class="tape-row" data-hscroll>${tapes.slice(0, ROW_MAX).map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`, "#/playlists")}
-      ${section("앨범", `${U.num(albums.length)}장`, `<div class="lp-row" data-hscroll>${albums.slice(0, ROW_MAX).map(lpAlbum).join("")}</div>`, "#/albums")}
+      ${section("앨범", `${U.num(albums.length)}장`, `<div class="lp-row" data-hscroll>${albums.slice(0, ROW_MAX).map((a) => lpAlbum(a)).join("")}</div>`, "#/albums")}
       ${section("아티스트", `${U.num(artists.length)}명`, `<div class="shelf scroll artist-row" data-hscroll>${artists.slice(0, ROW_MAX).map(artistCard).join("")}</div>`, "#/artists")}
     </div>`;
   };
@@ -837,8 +837,15 @@
 
   // 싱크 가사 생성기: PC 프로그램 창(pywebview)에서만 보인다. 설치와 실행은 PC 쪽(pc/lyricsync.py)이 맡는다
   const PWA = () => (window.pywebview && window.pywebview.api && window.pywebview.api.ls_state ? window.pywebview.api : null);
-  let LS = null, lsTimer = 0, lsShowChecks = false, lsHtml = "";
-  function lsSlot() { lsHtml = ""; setTimeout(lsPoll); return `<div class="set-card" id="ls-card" hidden></div>`; }
+  const LS_TABS = [["made", "만든 곡"], ["check", "확인 필요"], ["fail", "실패"], ["skip", "건너뛴 곡"], ["rejected", "되돌린 곡"]];
+  const LS_STATUS = { done: "만듦", kept: "괜찮음", restored: "사본으로 되살림", check: "확인 필요", fail: "실패", skip: "건너뜀", rejected: "되돌림" };
+  const LS_MAX = 300; // 목록에 한 번에 그리는 수 (더 많으면 검색으로 좁힌다)
+  let LS = null, lsTimer = 0, lsHtml = "", lsHeadHtml = "";
+  let LSR = { tab: null, items: null, q: "", loading: false }; // 펼친 결과 목록
+  function lsSlot() {
+    lsHtml = lsHeadHtml = ""; LSR.items = null; setTimeout(lsPoll);
+    return `<div class="set-card" id="ls-card" hidden><div id="ls-main"></div><div id="ls-results"><div id="ls-results-head"></div><div id="ls-filter"></div><div id="ls-rows"></div></div></div>`;
+  }
   window.addEventListener("pywebviewready", () => lsPoll());
   function lsPoll() {
     clearTimeout(lsTimer);
@@ -849,13 +856,18 @@
   }
   function renderLsCard() {
     const c = $("#ls-card"); if (!c || !LS) return;
-    const html = lsCard(LS);
     c.hidden = false;
-    if (html !== lsHtml) { c.innerHTML = html; lsHtml = html; }
+    const html = lsCard(LS);
+    if (html !== lsHtml) { $("#ls-main").innerHTML = html; lsHtml = html; }
+    const head = lsResultsHead(LS);
+    if (head !== lsHeadHtml) { $("#ls-results-head").innerHTML = head; lsHeadHtml = head; }
+    // 펼친 목록의 곡 수가 바뀌면(생성 중이거나 정리했을 때) 다시 불러온다
+    const n = LSR.tab ? (LS.counts || {})[LSR.tab] || 0 : 0;
+    if (LSR.tab && !LSR.loading && (!LSR.items || LSR.items.length !== n)) lsLoadList();
   }
   function lsCard(st) {
     const r = st.run;
-    const rows = [`<div><span>설치 위치</span><b style="font-size:14px">${st.home ? esc(st.home) : "아직 고르지 않았어요"}</b></div>`];
+    const rows = [`<div><span>생성 도구 위치</span><b style="font-size:14px">${st.home ? esc(st.home) : "아직 고르지 않았어요"}</b></div>`];
     if (st.parent && st.freeGb != null) rows.push(`<div><span>남은 공간</span><b style="font-size:14px">${st.freeGb}GB</b></div>`);
     if (st.installed) rows.push(`<div><span>계산 장치</span><b style="font-size:14px">${st.device === "cuda" ? esc(st.gpu || "NVIDIA GPU") : "CPU (GPU보다 많이 느려요)"}</b></div>`);
     let body = "", btns = "";
@@ -863,8 +875,8 @@
       body = `<p class="ls-step">${esc(st.step)}</p>${st.log.length ? `<pre class="ls-log">${esc(st.log.slice(-3).join("\n"))}</pre>` : ""}`;
       btns = st.phase === "installing" ? `<button class="btn ghost" data-act="ls-stop">멈춤</button>` : "";
     } else if (!st.installed) {
-      body = `<p class="ls-note">처음 한 번 실행 환경과 모델을 받아요. 설치하는 동안 ${st.needGb}GB, 끝나면 7GB 정도를 써요. NVIDIA 그래픽카드가 있으면 곡당 20초 안팎, 없으면 몇 분씩 걸려요.</p>`;
-      btns = `<button class="btn ghost" data-act="ls-pick">${st.parent ? "위치 바꾸기" : "위치 고르기"}</button><button class="btn" data-act="ls-install"${st.parent ? "" : " disabled"}>설치</button>`;
+      body = `<p class="ls-note">싱크 가사를 만드는 생성 도구(실행 환경과 음성 모델)를 처음 한 번 이 PC에 설치해요. 고른 폴더 안에만 설치되고, 설치하는 동안 ${st.needGb}GB, 끝나면 7GB 정도를 써요. NVIDIA 그래픽카드가 있으면 곡당 20초 안팎, 없으면 몇 분씩 걸려요.</p>`;
+      btns = `<button class="btn ghost" data-act="ls-pick">${st.parent ? "도구 위치 바꾸기" : "도구 설치 위치 고르기"}</button><button class="btn" data-act="ls-install"${st.parent ? "" : " disabled"}>생성 도구 설치</button>`;
     } else if (st.phase === "running") {
       const pct = r && r.total ? Math.round((r.i / r.total) * 100) : 0;
       const avg = r && r.secs.length ? Math.round(r.secs.reduce((a, b) => a + b, 0) / r.secs.length) : 0;
@@ -875,30 +887,101 @@
       btns = `<button class="btn ghost" data-act="ls-stop">멈춤</button>`;
     } else {
       body = r ? `<p class="ls-step">${r.stopped ? "멈췄어요" : "다 살펴봤어요"}</p>${lsCounts(r)}` : `<p class="ls-note">가사는 있지만 시간 정보가 없는 곡을 모두 찾아서 만들어요. 이미 시간 가사가 있는 곡은 건너뛰고, 중간에 멈춰도 다음에 이어서 해요.</p>`;
-      btns = `<button class="btn ghost" data-act="ls-remove">설치 지우기</button><button class="btn" data-act="ls-start">${r ? "다시 시작" : "시작"}</button>`;
+      btns = `<button class="btn ghost" data-act="ls-remove">생성 도구 지우기</button><button class="btn" data-act="ls-start">${r ? "다시 시작" : "시작"}</button>`;
     }
-    const checks = st.checks || [];
-    const checkList = checks.length ? `<div class="ls-checks"><button class="ls-checks-head" data-act="ls-checks"><span class="chev${lsShowChecks ? " open" : ""}"></span>확인해 볼 곡 ${U.num(checks.length)}개</button>
-      ${lsShowChecks ? `<p class="ls-note">자동으로 맞춘 결과가 어긋났을 수 있는 곡이에요. 재생해 보고 확인해 주세요.</p>${checks.map((o) => `<div class="ls-check"><a href="#/track/${encodeURIComponent(o.id)}">${esc(o.title || o.id)}</a><small>${esc(o.artist || "")}</small><em class="${o.status}">${o.status === "fail" ? "실패" : "확인"} · ${esc(o.reason || "")}</em></div>`).join("")}` : ""}</div>` : "";
-    return `<h3>싱크 가사 만들기</h3><p>가사는 있는데 시간 정보가 없는 곡을, 이 PC가 음원에 맞춰 시간 가사로 만들어 폰에 저장해요. 가사 글은 파일에 있던 그대로 쓰고, 원본 파일은 바꾸지 않아요.</p>
+    return `<h3>싱크 가사 만들기</h3><p>가사는 있는데 시간 정보가 없는 곡을, 이 PC가 음원에 맞춰 시간 가사로 만들어 폰에 저장해요. 가사 글은 파일에 있던 그대로 쓰고, 원본 파일은 바꾸지 않아요.</p><p style="margin-top:6px">만든 싱크 가사는 폰에 저장되고, 아래 생성 도구 폴더에는 폰 데이터가 지워졌을 때 되살릴 사본만 남아요.</p>
       <div class="addr">${rows.join("")}</div>${body}
       ${st.error ? `<p class="ls-err">${esc(st.error)}</p>` : ""}
-      <div class="ls-btns">${btns}</div>${checkList}`;
+      <div class="ls-btns">${btns}</div>`;
   }
   function lsCounts(r) {
     if (!r) return "";
-    const parts = [["새로 만듦", r.done + r.check], ["확인 필요", r.check], ["실패", r.fail], ["사본으로 되살림", r.restored], ["건너뜀", r.skip]].filter(([, n]) => n > 0);
+    const parts = [["이번에 만듦", r.done + r.check], ["확인 필요", r.check], ["실패", r.fail], ["사본으로 되살림", r.restored], ["건너뜀", r.skip]].filter(([, n]) => n > 0);
     return parts.length ? `<p class="ls-note">${parts.map(([k, n]) => `${k} <b>${U.num(n)}</b>`).join(" · ")}</p>` : "";
   }
-  function lsAct(act) {
+  // ── 결과 목록: 지난 실행까지 합친 곡별 마지막 결과 ──
+  function lsResultsHead(st) {
+    const c = st.counts || {};
+    if (!LS_TABS.some(([k]) => c[k])) return "";
+    return `<div class="ls-tabs"><span>결과 목록</span>${LS_TABS.map(([k, label]) => `<button class="ls-tab${LSR.tab === k ? " on" : ""}" data-act="ls-tab" data-v="${k}">${label} <b>${U.num(c[k] || 0)}</b></button>`).join("")}</div>`;
+  }
+  const LS_TAB_NOTE = {
+    made: "싱크 가사를 만들어 폰에 저장한 곡이에요. 정규 음원이 아니거나 틀린 곡은 「되돌리기」로 원래 가사로 돌릴 수 있어요.",
+    check: "만들어서 저장은 했지만 어긋났을 수 있는 곡이에요. 재생해 보고 괜찮으면 「괜찮아요」, 틀렸으면 「되돌리기」를 눌러 주세요.",
+    fail: "만들지 못한 곡이에요. 다음에 시작하면 다시 시도해요.",
+    skip: "만들 필요가 없거나 만들 수 없어서 지나간 곡이에요. 이 도구는 파일에 있는 가사 글에 시간만 붙이므로, 가사가 없는 곡은 만들 수 없어요.",
+    rejected: "되돌려서 원래 가사로 돌아간 곡이에요. 다음에 시작해도 다시 만들지 않아요. 「다시 만들기」를 누르면 다음 실행 때 다시 만들어요.",
+  };
+  function lsLoadList() {
+    const pw = PWA(), tab = LSR.tab; if (!pw || !tab) return;
+    LSR.loading = true;
+    pw.ls_results(tab).then((items) => { if (LSR.tab === tab) { LSR.items = items || []; renderLsRows(); } })
+      .catch(() => {}).then(() => { LSR.loading = false; });
+  }
+  function renderLsFilter() {
+    const f = $("#ls-filter"); if (!f) return;
+    f.innerHTML = LSR.tab ? `<p class="ls-note">${LS_TAB_NOTE[LSR.tab]}</p><input class="ls-search" data-ls-filter placeholder="곡·아티스트·이유로 찾기" value="${esc(LSR.q)}">` : "";
+  }
+  function renderLsRows() {
+    const box = $("#ls-rows"); if (!box) return;
+    if (!LSR.tab) { box.innerHTML = ""; return; }
+    if (!LSR.items) { box.innerHTML = `<p class="ls-note">불러오는 중…</p>`; return; }
+    const q = LSR.q.trim().toLowerCase();
+    const all = q ? LSR.items.filter((o) => `${o.title || ""} ${o.artist || ""} ${o.reason || ""}`.toLowerCase().includes(q)) : LSR.items;
+    const shown = all.slice(0, LS_MAX);
+    let top = "";
+    if (LSR.tab === "skip" && !q) { // 이유별로 몇 곡인지
+      const by = new Map(); LSR.items.forEach((o) => by.set(o.reason || "", (by.get(o.reason || "") || 0) + 1));
+      top = `<p class="ls-note">${[...by].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k || "기타")} <b>${U.num(n)}</b>`).join(" · ")}</p>`;
+    }
+    if (LSR.tab === "check" && LSR.items.length) top += `<div class="ls-btns" style="margin-top:10px"><button class="btn ghost" data-act="ls-revert-all">확인 필요 곡 모두 되돌리기</button></div>`;
+    box.innerHTML = top + (shown.length ? shown.map(lsRow).join("") : `<p class="ls-note">${q ? "찾는 곡이 없어요" : "아직 없어요"}</p>`)
+      + (all.length > shown.length ? `<p class="ls-note">외 ${U.num(all.length - shown.length)}곡 — 검색으로 좁혀 보세요</p>` : "");
+  }
+  function lsRow(o) {
+    const id = esc(o.id), st = o.status;
+    const b = (act, label) => `<button class="btn ghost" data-act="${act}" data-id="${id}">${label}</button>`;
+    const btns = st === "check" ? b("ls-keep", "괜찮아요") + b("ls-revert", "되돌리기")
+      : st === "done" || st === "kept" || st === "restored" ? b("ls-revert", "되돌리기")
+      : st === "rejected" ? b("ls-retry", "다시 만들기") : "";
+    return `<div class="ls-check"><a href="#/track/${encodeURIComponent(o.id)}">${esc(o.title || o.id)}</a><small>${esc(o.artist || "")}</small>
+      <em class="${st}">${LS_STATUS[st] || st}${o.reason ? " · " + esc(o.reason) : ""}</em>${btns ? `<span class="ls-check-btns">${btns}</span>` : ""}</div>`;
+  }
+  document.addEventListener("input", (e) => {
+    if (!e.target.matches || !e.target.matches("[data-ls-filter]")) return;
+    LSR.q = e.target.value; renderLsRows();
+  });
+  function lsAct(act, el) {
     const pw = PWA(); if (!pw) return;
     const done = (res) => { if (res && res.ok === false && !res.cancel) toast(res.error || "실패했어요"); lsPoll(); };
     const fail = (err) => { toast("실패: " + ((err && err.message) || err)); lsPoll(); };
-    if (act === "ls-checks") { lsShowChecks = !lsShowChecks; renderLsCard(); return; }
+    if (act === "ls-tab") {
+      const v = el.dataset.v;
+      LSR = { tab: LSR.tab === v ? null : v, items: null, q: "", loading: false };
+      lsHeadHtml = ""; renderLsCard(); renderLsFilter(); renderLsRows();
+      if (LSR.tab) lsLoadList();
+      return;
+    }
+    if (act === "ls-revert" || act === "ls-keep" || act === "ls-retry" || act === "ls-revert-all") {
+      const ids = act === "ls-revert-all" ? (LSR.items || []).filter((o) => o.status === "check").map((o) => o.id) : [el.dataset.id];
+      if (!ids.length) return;
+      if (act === "ls-revert-all" && !confirm(`확인 필요 곡 ${ids.length}곡의 만든 가사를 지우고 원래 가사로 되돌릴까요?\n되돌린 곡은 다시 만들지 않아요.`)) return;
+      const action = act === "ls-keep" ? "keep" : act === "ls-retry" ? "retry" : "revert";
+      el.disabled = true;
+      (action === "revert" ? API.token() : Promise.resolve({ token: "" }))
+        .then((t) => pw.ls_review(location.origin, t.token, ids, action))
+        .then((res) => {
+          if (res && res.ok) toast(action === "revert" ? `${U.num(res.count)}곡을 원래 가사로 되돌렸어요` : action === "retry" ? "다음에 시작하면 다시 만들어요" : "괜찮은 곡으로 옮겼어요");
+          if (action === "revert") ids.forEach((id) => lyrCache.delete(id)); // 가사 화면이 새로 불러오게
+          LSR.items = null; renderLsRows(); lsLoadList();
+          done(res);
+        }, fail);
+      return;
+    }
     if (act === "ls-pick") pw.ls_pick_dir().then(done, fail);
     else if (act === "ls-install") pw.ls_install().then(done, fail);
     else if (act === "ls-stop") pw.ls_stop().then(done, fail);
-    else if (act === "ls-remove") { if (confirm("설치한 실행 환경과 모델을 지울까요?\n폰에 저장된 싱크 가사와 PC에 남긴 사본은 지우지 않아요.")) pw.ls_remove().then(done, fail); }
+    else if (act === "ls-remove") { if (confirm("생성 도구(실행 환경과 모델)를 지울까요?\n폰에 저장된 싱크 가사와 PC에 남긴 사본은 지우지 않아요.")) pw.ls_remove().then(done, fail); }
     else if (act === "ls-start") API.token().then((t) => pw.ls_start(location.origin, t.token)).then(done, fail);
   }
 
@@ -1524,7 +1607,7 @@
             .catch((err) => { if (FD) { FD.saving = false; renderFolderCard(); } toast("실패: " + err.message); });
           return;
         }
-        case "ls-pick": case "ls-install": case "ls-stop": case "ls-remove": case "ls-start": case "ls-checks": lsAct(act); return;
+        case "ls-pick": case "ls-install": case "ls-stop": case "ls-remove": case "ls-start": case "ls-tab": case "ls-revert": case "ls-keep": case "ls-retry": case "ls-revert-all": lsAct(act, a); return;
         case "server-toggle": { const on = !a.classList.contains("on"); try { window.NativeBridge.setServerEnabled(on); } catch (err) {} setTimeout(rerender, 400); return; }
         case "rescan": { toast("라이브러리를 다시 읽는 중…"); (window.NativeBridge ? Promise.resolve(window.NativeBridge.rescan()) : API.rescan()).then(() => setTimeout(reloadLibrary, 300)).catch((err) => toast("실패: " + err.message)); return; }
       }

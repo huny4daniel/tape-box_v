@@ -157,6 +157,23 @@ def prepare(home, model_name):
 
 
 # ───── 생성 ─────
+def last_results(path):
+    """results.jsonl에서 곡마다 마지막 기록"""
+    last = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    o = json.loads(line)
+                    last[o["id"]] = o
+                except Exception:
+                    pass
+    except FileNotFoundError:
+        pass
+    return last
+
+
+
 def run(home, server, token, model_name, language):
     phone = Phone(server, token)
     made_dir = os.path.join(home, "made")
@@ -180,27 +197,45 @@ def run(home, server, token, model_name, language):
         emit(type="fatal", text=str(e))
         return 2
     tracks = lib.get("tracks", [])
+    last = last_results(results_path)
     emit(type="start", total=len(tracks))
+
+    def skip(reason, info):
+        emit(type="track", status="skip", reason=reason, **info)
+        prev = last.get(info["id"]) or {}
+        if prev.get("status") != "skip" or prev.get("reason") != reason:  # 바뀐 것만 남겨 기록이 불어나지 않게
+            record(status="skip", reason=reason, **info)
 
     model = device = None
     for i, t in enumerate(tracks, 1):
         tid = t["id"]
         info = dict(i=i, id=tid, title=t.get("title") or "", artist=t.get("artist") or "")
         saved = os.path.join(made_dir, hashlib.sha1(tid.encode("utf-8")).hexdigest()[:20] + ".lrc")
+        prev = (last.get(tid) or {}).get("status")
         try:
             lyr = phone.json("GET", "/api/lyrics/" + q(tid))
             if lyr.get("synced"):
-                emit(type="track", status="skip", reason="이미 시간 가사가 있음", **info)
+                if lyr.get("source") == "file":
+                    skip("파일에 이미 시간 가사가 있음", info)
+                else:  # 이 생성기가 만든 가사. 기록(만듦·확인 필요 등)은 그대로 둔다
+                    emit(type="track", status="skip", reason="이미 만든 곡", **info)
+                    if prev is None or prev == "skip":
+                        record(status="done", reason="", **info)
+                continue
+            if prev == "rejected":  # 결과가 틀려서 되돌린 곡은 다시 만들지 않는다
+                emit(type="track", status="skip", reason="되돌린 곡", **info)
                 continue
             # 전에 만든 적 있으면 다시 만들지 않고 그대로 보낸다 (폰 앱 데이터가 지워진 경우)
             if os.path.exists(saved):
                 with open(saved, encoding="utf-8") as f:
                     phone.json("PUT", "/api/lyrics/" + q(tid), {"lrc": f.read(), "source": "aligned"})
                 emit(type="track", status="restored", **info)
+                if prev not in ("done", "check", "kept"):
+                    record(status="restored", reason="", **info)
                 continue
             plain = lyr.get("plain")
             if not plain or not plain.strip():
-                emit(type="track", status="skip", reason="가사가 없음", **info)
+                skip("가사가 없음", info)
                 continue
 
             if model is None:

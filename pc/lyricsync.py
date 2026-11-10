@@ -4,6 +4,7 @@
 사용자가 고른 폴더 아래 「TapeBox-LyricSync」에 uv로 Python 환경을 따로 만들고, 모델과 캐시도 모두 그 안에 둔다.
 생성기는 그 환경의 python으로 lyricsync_worker.py를 띄우고, 한 줄짜리 JSON 출력을 읽어 진행 상황을 모은다.
 """
+import hashlib
 import io
 import json
 import os
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -23,6 +25,9 @@ TORCH_INDEX = {"cuda": "https://download.pytorch.org/whl/cu124", "cpu": "https:/
 NEED_GB = 12          # 설치하는 동안 필요한 여유 공간 (끝나면 캐시를 지워 7GB 정도로 줄어든다)
 LAYOUT = 1            # 설치 형식이 바뀌면 올려서 다시 설치하게 한다
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+# 결과 기록의 상태 → 화면 목록 종류
+KIND = {"done": "made", "kept": "made", "restored": "made", "check": "check", "fail": "fail",
+        "skip": "skip", "rejected": "rejected"}  # retry는 어느 목록에도 넣지 않는다
 
 
 def _here(name):
@@ -85,12 +90,14 @@ class LyricSync:
         except Exception:
             return None
 
-    def _checks(self, limit=200):
-        """지난 실행들까지 포함해 '확인 필요'·'실패'로 남은 곡 (같은 곡은 마지막 결과만)"""
-        path = os.path.join(self.home, "results.jsonl") if self.home else ""
+    # ───── 결과 기록 (results.jsonl: 곡마다 마지막 줄이 그 곡의 상태) ─────
+    def _results_path(self):
+        return os.path.join(self.home, "results.jsonl")
+
+    def _last(self):
         last = {}
         try:
-            with open(path, encoding="utf-8") as f:
+            with open(self._results_path(), encoding="utf-8") as f:
                 for line in f:
                     try:
                         o = json.loads(line)
@@ -98,10 +105,75 @@ class LyricSync:
                     except Exception:
                         pass
         except Exception:
-            return []
-        items = [o for o in last.values() if o.get("status") in ("check", "fail")]
+            pass
+        return last
+
+    def _compact(self):
+        """같은 곡의 지난 기록을 버리고 마지막 것만 남긴다 (생성기가 돌지 않을 때만)"""
+        last = self._last()
+        if not last:
+            return
+        tmp = self._results_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for o in last.values():
+                f.write(json.dumps(o, ensure_ascii=False) + "\n")
+        os.replace(tmp, self._results_path())
+
+    def _counts(self):
+        c = {k: 0 for k in ("made", "check", "fail", "skip", "rejected")}
+        for o in self._last().values():
+            k = KIND.get(o.get("status"))
+            if k:
+                c[k] += 1
+        return c
+
+    def results(self, kind):
+        items = [o for o in self._last().values() if KIND.get(o.get("status")) == kind]
         items.sort(key=lambda o: -o.get("at", 0))
-        return [{k: o.get(k) for k in ("id", "title", "artist", "status", "reason")} for o in items[:limit]]
+        return [{k: o.get(k) for k in ("id", "title", "artist", "status", "reason")} for o in items]
+
+    def _record(self, items, status):
+        with self.lock:
+            with open(self._results_path(), "a", encoding="utf-8") as f:
+                for o in items:
+                    f.write(json.dumps({"status": status, "id": o["id"], "title": o.get("title"), "artist": o.get("artist"),
+                                        "at": int(time.time())}, ensure_ascii=False) + "\n")
+
+    def review(self, server, token, ids, action):
+        """결과 목록의 곡을 정리한다.
+        keep: 확인 필요였지만 괜찮다고 표시 / revert: 폰의 만든 가사와 PC 사본을 지워 원래 가사로 돌리고 다시 만들지 않게 표시
+        retry: 되돌린 곡을 다음 실행 때 다시 만들게 표시"""
+        if not self.home:
+            return {"ok": False, "error": "생성 도구가 설치돼 있지 않아요"}
+        last = self._last()
+        items = [last[i] for i in ids if i in last]
+        if action == "keep":
+            self._record([o for o in items if o.get("status") == "check"], "kept")
+            return {"ok": True, "count": len(items)}
+        if action == "retry":
+            items = [o for o in items if o.get("status") == "rejected"]
+            self._record(items, "retry")
+            return {"ok": True, "count": len(items)}
+        done, failed = [], 0
+        for o in items:
+            if KIND.get(o.get("status")) not in ("made", "check"):
+                continue
+            req = urllib.request.Request(server.rstrip("/") + "/api/lyrics/" + urllib.parse.quote(o["id"], safe=""),
+                                         method="DELETE", headers={"Cookie": "mc_token=" + token})
+            try:
+                urllib.request.urlopen(req, timeout=15).close()
+            except Exception:
+                failed += 1
+                continue
+            try:
+                os.remove(os.path.join(self.home, "made", hashlib.sha1(o["id"].encode("utf-8")).hexdigest()[:20] + ".lrc"))
+            except FileNotFoundError:
+                pass
+            done.append(o)
+        self._record(done, "rejected")
+        if failed:
+            return {"ok": False, "error": f"{failed}곡은 폰에 연결하지 못해 되돌리지 못했어요"}
+        return {"ok": True, "count": len(done)}
 
     def state(self):
         with self.lock:
@@ -111,7 +183,7 @@ class LyricSync:
                 "freeGb": free_gb(self.parent) if self.parent else None, "needGb": NEED_GB,
                 "installed": bool(ready), "device": (ready or {}).get("device"), "gpu": (ready or {}).get("gpu"),
                 "phase": self.phase, "step": self.step, "log": self.log[-6:], "error": self.error,
-                "run": self.run, "checks": self._checks() if ready else [],
+                "run": self.run, "counts": self._counts() if self.home else {},
             }
 
     def set_parent(self, path):
@@ -119,7 +191,7 @@ class LyricSync:
             if self.phase != "idle":
                 return {"ok": False, "error": "작업 중에는 바꿀 수 없어요"}
             if self._ready_info():
-                return {"ok": False, "error": "이미 설치돼 있어요. 위치를 바꾸려면 먼저 설치를 지워 주세요"}
+                return {"ok": False, "error": "생성 도구가 이미 설치돼 있어요. 위치를 바꾸려면 먼저 생성 도구를 지워 주세요"}
             path = os.path.abspath(path)
             try:
                 os.makedirs(os.path.join(path, SUBDIR), exist_ok=True)
@@ -171,7 +243,7 @@ class LyricSync:
             if self.phase != "idle":
                 return {"ok": False, "error": "이미 작업 중이에요"}
             if not self.parent:
-                return {"ok": False, "error": "설치할 위치를 먼저 골라 주세요"}
+                return {"ok": False, "error": "생성 도구를 설치할 위치를 먼저 골라 주세요"}
             free = free_gb(self.parent)
             if free is not None and free < NEED_GB:
                 return {"ok": False, "error": f"여유 공간이 부족해요 ({free}GB 남음, {NEED_GB}GB 필요)"}
@@ -224,13 +296,13 @@ class LyricSync:
                 pass
             with open(os.path.join(h, "ready.json"), "w", encoding="utf-8") as f:
                 json.dump({"layout": LAYOUT, "device": device, "gpu": gpu, "at": int(time.time())}, f)
-            self._set_step("설치를 마쳤어요")
+            self._set_step("생성 도구 설치를 마쳤어요")
         except InterruptedError:
             with self.lock:
-                self.error = "설치를 멈췄어요. 다시 누르면 받은 데부터 이어서 해요."
+                self.error = "생성 도구 설치를 멈췄어요. 다시 누르면 받은 데부터 이어서 해요."
         except Exception as e:
             with self.lock:
-                self.error = f"설치하지 못했어요: {e}"
+                self.error = f"생성 도구를 설치하지 못했어요: {e}"
         finally:
             with self.lock:
                 self.phase, self.proc = "idle", None
@@ -266,7 +338,11 @@ class LyricSync:
             if self.phase != "idle":
                 return {"ok": False, "error": "이미 작업 중이에요"}
             if not self._ready_info():
-                return {"ok": False, "error": "먼저 설치해 주세요"}
+                return {"ok": False, "error": "먼저 생성 도구를 설치해 주세요"}
+            try:
+                self._compact()
+            except Exception:
+                pass
             self.phase, self.step, self.log, self.error, self.stopping = "running", "폰에서 곡 목록을 받는 중…", [], "", False
             self.run = {"total": 0, "i": 0, "done": 0, "check": 0, "fail": 0, "skip": 0, "restored": 0,
                         "current": None, "device": None, "startedAt": int(time.time()), "secs": [], "finished": False}

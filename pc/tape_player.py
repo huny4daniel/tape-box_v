@@ -232,6 +232,12 @@ class Api:
     def ls_start(self, server, token):
         return self._ls.start(server, token)
 
+    def ls_review(self, server, token, ids, action):
+        return self._ls.review(server, token, ids, action)
+
+    def ls_results(self, kind):
+        return self._ls.results(kind)
+
     def ls_stop(self):
         return self._ls.stop()
 
