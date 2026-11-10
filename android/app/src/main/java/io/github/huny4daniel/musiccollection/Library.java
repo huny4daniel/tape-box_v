@@ -51,12 +51,14 @@ public class Library {
                 MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.TRACK, MediaStore.Audio.Media.YEAR, MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.DATE_MODIFIED, MediaStore.Audio.Media.MIME_TYPE, MediaStore.Audio.Media.SIZE,
-                "album_artist"));
+                "album_artist", MediaStore.Audio.Media.DATA));
         boolean hasGenre = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
         if (hasGenre) proj.add(MediaStore.Audio.Media.GENRE);
 
         List<Track> list = new ArrayList<>();
         Map<String, Track> ids = new HashMap<>();
+        Map<Long, Track> byMedia = new HashMap<>();
+        Map<String, Track> byPath = new HashMap<>();
         try (Cursor c = ctx.getContentResolver().query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj.toArray(new String[0]),
                 MediaStore.Audio.Media.IS_MUSIC + " != 0", null, null)) {
             if (c != null) while (c.moveToNext()) {
@@ -76,12 +78,14 @@ public class Library {
                 t.mime = c.getString(10) == null ? "audio/mpeg" : c.getString(10);
                 t.size = c.getLong(11);
                 t.albumArtist = cleanArtist(c.getString(12));
-                if (hasGenre) t.genre = nz(c.getString(13));
+                String path = c.getString(13);
+                if (hasGenre) t.genre = nz(c.getString(14));
                 if (t.duration < 1000) continue;
                 t.id = keyOf(t);
-                if (ids.containsKey(t.id)) continue; // 같은 곡이 두 번 들어 있으면 하나만
-                ids.put(t.id, t);
-                list.add(t);
+                Track kept = ids.get(t.id); // 같은 곡이 두 번 들어 있으면 하나만
+                if (kept == null) { ids.put(t.id, t); list.add(t); kept = t; }
+                byMedia.put(t.mediaId, kept);
+                if (path != null && !path.isEmpty()) byPath.put(PlaylistImport.normPath(path), kept);
             }
         } catch (SecurityException e) {
             Log.w(TAG, "no permission", e);
@@ -94,6 +98,8 @@ public class Library {
         fresh.sort((a, b) -> a.addedAt != b.addedAt ? Long.compare(a.addedAt, b.addedAt)
                 : a.album.equals(b.album) ? Integer.compare(a.disc * 1000 + a.track, b.disc * 1000 + b.track) : a.album.compareTo(b.album));
         db.assignNumbers(fresh);
+
+        PlaylistImport.importAll(ctx, db, byMedia, byPath);
 
         Map<String, Track> rep = new HashMap<>();
         for (Track t : list) if (!rep.containsKey(t.albumKey)) rep.put(t.albumKey, t);

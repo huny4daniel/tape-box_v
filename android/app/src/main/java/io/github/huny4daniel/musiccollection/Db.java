@@ -143,6 +143,28 @@ public class Db extends SQLiteOpenHelper {
         getWritableDatabase().delete("playlists", "id = ?", new String[]{id});
     }
 
+    /**
+     * 다른 플레이어에서 가져온 재생목록을 맞춘다. 처음 보면 만들고, 이후엔 이 앱에서 고치지 않은 동안만 원본을 따라간다.
+     * 이 앱에서 지운 재생목록은 다시 만들지 않는다. 바뀐 게 있으면 true.
+     */
+    public synchronized boolean syncImportedPlaylist(String sourceKey, String name, List<String> items) throws JSONException {
+        String k = "import:" + sourceKey;
+        String rec = get(k, null);
+        JSONArray arr = new JSONArray(items);
+        if (rec == null) {
+            JSONObject pl = createPlaylist(name, arr);
+            put(k, new JSONObject().put("id", pl.getString("id")).put("at", pl.getLong("updated")).toString());
+            return true;
+        }
+        JSONObject r = new JSONObject(rec);
+        JSONObject pl = playlist(r.getString("id"));
+        if (pl == null || pl.getLong("updated") != r.getLong("at")) return false; // 지웠거나 이 앱에서 고친 목록
+        if (pl.getString("name").equals(name) && pl.getJSONArray("items").toString().equals(arr.toString())) return false;
+        pl = updatePlaylist(pl.getString("id"), new JSONObject().put("name", name).put("items", arr));
+        put(k, r.put("at", pl.getLong("updated")).toString());
+        return true;
+    }
+
     // ───── 설정 ─────
     public synchronized String get(String k, String def) {
         try (Cursor c = getReadableDatabase().rawQuery("SELECT v FROM kv WHERE k = ?", new String[]{k})) {

@@ -11,6 +11,7 @@
   - `js/mock.js`: 폰 없이 화면을 확인할 때 쓰는 가짜 라이브러리 (`mock.html`)
 - `android/`: 폰 앱 (Java)
   - `Library`: MediaStore 스캔. 곡 id는 제목·아티스트·앨범·길이로 만든 고정 키
+  - `PlaylistImport`: 스캔할 때 다른 플레이어의 재생목록(MediaStore 재생목록, `.m3u`/`.m3u8`)을 가져온다. 이 앱에서 고치거나 지우기 전까지는 원본 변경을 따라간다
   - `Db`: 수집 번호·재생 기록·아끼는 곡·메모·재생목록 (SQLite). 컬렉션에서 빠진 곡의 기록도 남긴다
   - `Id3Lyrics`: ID3 태그의 SYLT/USLT 가사, USLT 안의 `[mm:ss.xx]` 시간 가사
   - `ArtCache`: mp3에 든 앨범아트를 크기별 JPEG로 캐시
