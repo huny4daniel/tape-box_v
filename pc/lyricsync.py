@@ -3,6 +3,16 @@
 생성기는 PyTorch·Whisper·보컬 분리 모델이 필요해 수 GB가 되므로 exe에 넣지 않는다.
 사용자가 고른 폴더 아래 「TapeBox-LyricSync」에 uv로 Python 환경을 따로 만들고, 모델과 캐시도 모두 그 안에 둔다.
 생성기는 그 환경의 python으로 lyricsync_worker.py를 띄우고, 한 줄짜리 JSON 출력을 읽어 진행 상황을 모은다.
+
+만드는 방식은 둘이다.
+  folder: PC에 복사해 둔 음원 폴더로 만든다. 폰이 필요 없고, 다 만든 뒤 「폰에 보내기」로 폰 DB에 넣는다.
+  phone:  폰에서 곡을 하나씩 받아 만들고 바로 폰에 저장한다.
+
+생성 도구 폴더 안의 파일
+  results.jsonl  곡마다 마지막 줄이 그 곡의 결과
+  made/          만든 LRC (폰에 보내거나 폰 데이터가 지워졌을 때 되살리는 원본)
+  sent.json      PC 폴더 방식으로 만든 곡 중 폰에 보낸 것 {곡 키: {phone: 폰 곡 id, at: 보낸 시각}}
+  notfound.json  보낼 때 폰에서 짝을 찾지 못한 곡 키
 """
 import hashlib
 import io
@@ -13,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -20,14 +31,17 @@ import zipfile
 SUBDIR = "TapeBox-LyricSync"
 UV_URL = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
 TORCH = ["torch==2.6.0", "torchaudio==2.6.0"]
-PACKAGES = ["stable-ts==2.19.1", "demucs==4.0.1", "imageio-ffmpeg", "packaging"]
+PACKAGES = ["stable-ts==2.19.1", "demucs==4.0.1", "imageio-ffmpeg", "packaging", "mutagen"]
 TORCH_INDEX = {"cuda": "https://download.pytorch.org/whl/cu124", "cpu": "https://download.pytorch.org/whl/cpu"}
 NEED_GB = 12          # 설치하는 동안 필요한 여유 공간 (끝나면 캐시를 지워 7GB 정도로 줄어든다)
-LAYOUT = 1            # 설치 형식이 바뀌면 올려서 다시 설치하게 한다
+LAYOUT = 2            # 설치 형식이 바뀌면 올려서 업데이트하게 한다 (2: 음원 파일 태그를 읽는 mutagen 추가)
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+DUR_TOLERANCE = 2.5   # 폰과 PC가 잰 곡 길이 차이를 이만큼(초)까지 같은 곡으로 본다
+MADE = ("done", "check", "kept", "restored")
 # 결과 기록의 상태 → 화면 목록 종류
 KIND = {"done": "made", "kept": "made", "restored": "made", "check": "check", "fail": "fail",
         "skip": "skip", "rejected": "rejected"}  # retry는 어느 목록에도 넣지 않는다
+REFUSED = "폰이 연결을 거부했어요. PC 프로그램에서 PIN으로 다시 연결해 주세요."
 
 
 def _here(name):
@@ -58,46 +72,90 @@ def detect_gpu():
         return None
 
 
+def _norm(s):
+    return (s or "").strip().lower()
+
+
+class PhoneAPI:
+    def __init__(self, server, token):
+        self.server, self.token = (server or "").rstrip("/"), token or ""
+
+    def call(self, method, path, body=None, timeout=20):
+        data, headers = None, {"Cookie": "mc_token=" + self.token}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(self.server + path, data=data, method=method, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+        return json.loads(raw.decode("utf-8")) if raw else {}
+
+
 class LyricSync:
     def __init__(self, load_config, save_config):
         self._load, self._save = load_config, save_config
-        self.lock = threading.Lock()
-        self.phase = "idle"          # idle | installing | running | removing
+        self.lock = threading.RLock()
+        self.phase = "idle"          # idle | installing | running | sending | removing
         self.step = ""
         self.log = []                # 최근 출력 몇 줄
         self.error = ""
+        self.notice = ""             # 끝난 작업의 안내 한 줄
         self.proc = None
         self.stopping = False
         self.run = None              # 이번 실행의 진행 상황
+        self.send = None             # 이번 「폰에 보내기」의 진행 상황
 
-    # ───── 위치·상태 ─────
+    # ───── 설정 ─────
+    def _cfg(self, k, default=""):
+        return self._load().get(k) or default
+
+    def _set_cfg(self, **kv):
+        cfg = self._load()
+        cfg.update(kv)
+        self._save(cfg)
+
     @property
     def parent(self):
-        return self._load().get("lyricsync_dir") or ""
+        return self._cfg("lyricsync_dir")
 
     @property
     def home(self):
         return os.path.join(self.parent, SUBDIR) if self.parent else ""
 
+    @property
+    def source(self):
+        return self._cfg("lyricsync_source", "folder")
+
+    @property
+    def music_dir(self):
+        return self._cfg("lyricsync_music")
+
     def _py(self):
         return os.path.join(self.home, "env", "Scripts", "python.exe")
 
-    def _ready_info(self):
+    def _ready_raw(self):
         try:
             with open(os.path.join(self.home, "ready.json"), encoding="utf-8") as f:
                 o = json.load(f)
-            return o if o.get("layout") == LAYOUT and os.path.exists(self._py()) else None
+            return o if os.path.exists(self._py()) else None
         except Exception:
             return None
 
-    # ───── 결과 기록 (results.jsonl: 곡마다 마지막 줄이 그 곡의 상태) ─────
-    def _results_path(self):
-        return os.path.join(self.home, "results.jsonl")
+    def _ready_info(self):
+        o = self._ready_raw()
+        return o if o and o.get("layout") == LAYOUT else None
+
+    # ───── 결과 기록 ─────
+    def _p(self, name):
+        return os.path.join(self.home, name)
+
+    def _made(self, key):
+        return os.path.join(self.home, "made", hashlib.sha1(key.encode("utf-8")).hexdigest()[:20] + ".lrc")
 
     def _last(self):
         last = {}
         try:
-            with open(self._results_path(), encoding="utf-8") as f:
+            with open(self._p("results.jsonl"), encoding="utf-8") as f:
                 for line in f:
                     try:
                         o = json.loads(line)
@@ -108,36 +166,85 @@ class LyricSync:
             pass
         return last
 
+    def _json(self, name, default):
+        try:
+            with open(self._p(name), encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+
+    def _write_json(self, name, value):
+        tmp = self._p(name) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False)
+        os.replace(tmp, self._p(name))
+
     def _compact(self):
         """같은 곡의 지난 기록을 버리고 마지막 것만 남긴다 (생성기가 돌지 않을 때만)"""
         last = self._last()
         if not last:
             return
-        tmp = self._results_path() + ".tmp"
+        tmp = self._p("results.jsonl") + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             for o in last.values():
                 f.write(json.dumps(o, ensure_ascii=False) + "\n")
-        os.replace(tmp, self._results_path())
+        os.replace(tmp, self._p("results.jsonl"))
+
+    def _phone_id(self, o, sent):
+        if o.get("mode") == "phone" or (not o.get("mode") and not o.get("path")):  # 폰 방식(이전 버전 포함)은 id가 곧 폰 곡 id
+            return o.get("phoneId") or o["id"]
+        return (sent.get(o["id"]) or {}).get("phone")
+
+    def _pending(self, last=None, sent=None):
+        """PC 폴더 방식으로 만들었지만 아직 폰에 보내지 않은(또는 보낸 뒤 다시 만든) 곡"""
+        last = self._last() if last is None else last
+        sent = self._json("sent.json", {}) if sent is None else sent
+        out = []
+        for o in last.values():
+            if o.get("mode") != "folder" or o.get("status") not in MADE:
+                continue
+            path = self._made(o["id"])
+            if not os.path.exists(path):
+                continue
+            s = sent.get(o["id"])
+            if s and s.get("at", 0) >= int(os.path.getmtime(path)):
+                continue
+            out.append(o)
+        return out
 
     def _counts(self):
         c = {k: 0 for k in ("made", "check", "fail", "skip", "rejected")}
-        for o in self._last().values():
+        last = self._last()
+        for o in last.values():
             k = KIND.get(o.get("status"))
             if k:
                 c[k] += 1
+        c["pending"] = len(self._pending(last))
+        nf = set(self._json("notfound.json", []))
+        c["notfound"] = sum(1 for k in nf if k in last and last[k].get("status") in MADE)
         return c
 
     def results(self, kind):
-        items = [o for o in self._last().values() if KIND.get(o.get("status")) == kind]
+        last, sent = self._last(), self._json("sent.json", {})
+        if kind == "notfound":
+            nf = set(self._json("notfound.json", []))
+            items = [o for k, o in last.items() if k in nf and o.get("status") in MADE]
+        else:
+            items = [o for o in last.values() if KIND.get(o.get("status")) == kind]
         items.sort(key=lambda o: -o.get("at", 0))
-        return [{k: o.get(k) for k in ("id", "title", "artist", "status", "reason")} for o in items]
+        out = []
+        for o in items:
+            d = {k: o.get(k) for k in ("id", "title", "artist", "status", "reason", "path")}
+            d["phoneId"] = self._phone_id(o, sent)
+            out.append(d)
+        return out
 
     def _record(self, items, status):
         with self.lock:
-            with open(self._results_path(), "a", encoding="utf-8") as f:
+            with open(self._p("results.jsonl"), "a", encoding="utf-8") as f:
                 for o in items:
-                    f.write(json.dumps({"status": status, "id": o["id"], "title": o.get("title"), "artist": o.get("artist"),
-                                        "at": int(time.time())}, ensure_ascii=False) + "\n")
+                    keep = {k: o.get(k) for k in ("id", "title", "artist", "album", "seconds", "path", "mode", "phoneId") if o.get(k) is not None}
+                    f.write(json.dumps(dict(keep, status=status, at=int(time.time())), ensure_ascii=False) + "\n")
 
     def review(self, server, token, ids, action):
         """결과 목록의 곡을 정리한다.
@@ -148,49 +255,81 @@ class LyricSync:
         last = self._last()
         items = [last[i] for i in ids if i in last]
         if action == "keep":
-            self._record([o for o in items if o.get("status") == "check"], "kept")
+            items = [o for o in items if o.get("status") == "check"]
+            self._record(items, "kept")
             return {"ok": True, "count": len(items)}
         if action == "retry":
             items = [o for o in items if o.get("status") == "rejected"]
             self._record(items, "retry")
             return {"ok": True, "count": len(items)}
+        phone, sent = PhoneAPI(server, token), self._json("sent.json", {})
         done, failed = [], 0
         for o in items:
-            if KIND.get(o.get("status")) not in ("made", "check"):
+            if o.get("status") not in MADE:
                 continue
-            req = urllib.request.Request(server.rstrip("/") + "/api/lyrics/" + urllib.parse.quote(o["id"], safe=""),
-                                         method="DELETE", headers={"Cookie": "mc_token=" + token})
+            pid = self._phone_id(o, sent)
+            if pid:  # 폰에 들어가 있는 곡이면 폰에서도 지운다
+                try:
+                    phone.call("DELETE", "/api/lyrics/" + urllib.parse.quote(pid, safe=""))
+                except Exception:
+                    failed += 1
+                    continue
             try:
-                urllib.request.urlopen(req, timeout=15).close()
-            except Exception:
-                failed += 1
-                continue
-            try:
-                os.remove(os.path.join(self.home, "made", hashlib.sha1(o["id"].encode("utf-8")).hexdigest()[:20] + ".lrc"))
+                os.remove(self._made(o["id"]))
             except FileNotFoundError:
                 pass
+            sent.pop(o["id"], None)
             done.append(o)
+        self._write_json("sent.json", sent)
         self._record(done, "rejected")
         if failed:
             return {"ok": False, "error": f"{failed}곡은 폰에 연결하지 못해 되돌리지 못했어요"}
         return {"ok": True, "count": len(done)}
 
+    def reset(self, server, token):
+        """결과 기록과 PC 사본을 모두 지우고, 폰에 저장된 만든 싱크 가사도 지운다"""
+        with self.lock:
+            if self.phase != "idle":
+                return {"ok": False, "error": "작업 중에는 지울 수 없어요"}
+            if not self.home:
+                return {"ok": False, "error": "생성 도구가 설치돼 있지 않아요"}
+        phone_ok = True
+        try:
+            PhoneAPI(server, token).call("DELETE", "/api/lyrics")
+        except Exception:
+            phone_ok = False
+        for name in ("results.jsonl", "sent.json", "notfound.json"):
+            try:
+                os.remove(self._p(name))
+            except FileNotFoundError:
+                pass
+        shutil.rmtree(self._p("made"), ignore_errors=True)
+        with self.lock:
+            self.run = self.send = None
+            self.error, self.notice = "", ""
+        return {"ok": True, "phone": phone_ok}
+
+    # ───── 상태 ─────
     def state(self):
         with self.lock:
-            ready = self._ready_info() if self.home else None
+            raw = self._ready_raw() if self.home else None
+            ready = raw if raw and raw.get("layout") == LAYOUT else None
+            music = self.music_dir
             return {
                 "parent": self.parent, "home": self.home,
                 "freeGb": free_gb(self.parent) if self.parent else None, "needGb": NEED_GB,
-                "installed": bool(ready), "device": (ready or {}).get("device"), "gpu": (ready or {}).get("gpu"),
-                "phase": self.phase, "step": self.step, "log": self.log[-6:], "error": self.error,
-                "run": self.run, "counts": self._counts() if self.home else {},
+                "installed": bool(ready), "outdated": bool(raw) and not ready,
+                "device": (raw or {}).get("device"), "gpu": (raw or {}).get("gpu"),
+                "source": self.source, "musicDir": music, "musicOk": bool(music) and os.path.isdir(music),
+                "phase": self.phase, "step": self.step, "log": self.log[-6:], "error": self.error, "notice": self.notice,
+                "run": self.run, "send": self.send, "counts": self._counts() if self.home else {},
             }
 
     def set_parent(self, path):
         with self.lock:
             if self.phase != "idle":
                 return {"ok": False, "error": "작업 중에는 바꿀 수 없어요"}
-            if self._ready_info():
+            if self._ready_raw():
                 return {"ok": False, "error": "생성 도구가 이미 설치돼 있어요. 위치를 바꾸려면 먼저 생성 도구를 지워 주세요"}
             path = os.path.abspath(path)
             try:
@@ -201,11 +340,28 @@ class LyricSync:
                 os.remove(probe)
             except Exception as e:
                 return {"ok": False, "error": f"이 폴더에는 쓸 수 없어요 ({e})"}
-            cfg = self._load()
-            cfg["lyricsync_dir"] = path
-            self._save(cfg)
+            self._set_cfg(lyricsync_dir=path)
             self.error = ""
             return {"ok": True}
+
+    def set_source(self, source):
+        if source not in ("folder", "phone"):
+            return {"ok": False, "error": "알 수 없는 방식"}
+        with self.lock:
+            if self.phase != "idle":
+                return {"ok": False, "error": "작업 중에는 바꿀 수 없어요"}
+            self._set_cfg(lyricsync_source=source)
+        return {"ok": True}
+
+    def set_music_dir(self, path):
+        path = os.path.abspath(path)
+        if not os.path.isdir(path):
+            return {"ok": False, "error": "폴더를 찾을 수 없어요"}
+        with self.lock:
+            if self.phase != "idle":
+                return {"ok": False, "error": "작업 중에는 바꿀 수 없어요"}
+            self._set_cfg(lyricsync_music=path)
+        return {"ok": True}
 
     # ───── 설치 ─────
     def _sub(self, args, env=None):
@@ -239,15 +395,16 @@ class LyricSync:
         return env
 
     def install(self):
+        """처음 설치와 업데이트를 겸한다. 이미 받은 것은 건너뛰므로 업데이트는 금방 끝난다"""
         with self.lock:
             if self.phase != "idle":
                 return {"ok": False, "error": "이미 작업 중이에요"}
             if not self.parent:
                 return {"ok": False, "error": "생성 도구를 설치할 위치를 먼저 골라 주세요"}
             free = free_gb(self.parent)
-            if free is not None and free < NEED_GB:
+            if not self._ready_raw() and free is not None and free < NEED_GB:
                 return {"ok": False, "error": f"여유 공간이 부족해요 ({free}GB 남음, {NEED_GB}GB 필요)"}
-            self.phase, self.step, self.log, self.error, self.stopping = "installing", "준비하는 중…", [], "", False
+            self.phase, self.step, self.log, self.error, self.notice, self.stopping = "installing", "준비하는 중…", [], "", "", False
         threading.Thread(target=self._install, daemon=True).start()
         return {"ok": True}
 
@@ -296,7 +453,9 @@ class LyricSync:
                 pass
             with open(os.path.join(h, "ready.json"), "w", encoding="utf-8") as f:
                 json.dump({"layout": LAYOUT, "device": device, "gpu": gpu, "at": int(time.time())}, f)
-            self._set_step("생성 도구 설치를 마쳤어요")
+            self._set_step("")
+            with self.lock:
+                self.notice = "생성 도구를 준비했어요"
         except InterruptedError:
             with self.lock:
                 self.error = "생성 도구 설치를 멈췄어요. 다시 누르면 받은 데부터 이어서 해요."
@@ -322,11 +481,10 @@ class LyricSync:
                 pass
             for d in ("env", "python", "cache", "models", "uv", "bin", "tmp"):
                 shutil.rmtree(os.path.join(self.home, d), ignore_errors=True)
-            for f in ("worker.py",):
-                try:
-                    os.remove(os.path.join(self.home, f))
-                except FileNotFoundError:
-                    pass
+            try:
+                os.remove(os.path.join(self.home, "worker.py"))
+            except FileNotFoundError:
+                pass
             return {"ok": True}
         finally:
             with self.lock:
@@ -338,25 +496,34 @@ class LyricSync:
             if self.phase != "idle":
                 return {"ok": False, "error": "이미 작업 중이에요"}
             if not self._ready_info():
-                return {"ok": False, "error": "먼저 생성 도구를 설치해 주세요"}
+                return {"ok": False, "error": "먼저 생성 도구를 설치(업데이트)해 주세요"}
+            mode = self.source
+            if mode == "folder":
+                if not self.music_dir or not os.path.isdir(self.music_dir):
+                    return {"ok": False, "error": "음원 폴더를 먼저 골라 주세요"}
+                args = ["--folder", self.music_dir]
+            else:
+                if not token:
+                    return {"ok": False, "error": "폰에 연결돼 있지 않아요"}
+                args = ["--server", server, "--token", token]
             try:
                 self._compact()
             except Exception:
                 pass
-            self.phase, self.step, self.log, self.error, self.stopping = "running", "폰에서 곡 목록을 받는 중…", [], "", False
-            self.run = {"total": 0, "i": 0, "done": 0, "check": 0, "fail": 0, "skip": 0, "restored": 0,
+            self.phase, self.log, self.error, self.notice, self.stopping = "running", [], "", "", False
+            self.step = "음원 파일을 찾는 중…" if mode == "folder" else "폰에서 곡 목록을 받는 중…"
+            self.run = {"mode": mode, "total": 0, "i": 0, "done": 0, "check": 0, "fail": 0, "skip": 0, "restored": 0,
                         "current": None, "device": None, "startedAt": int(time.time()), "secs": [], "finished": False}
-        threading.Thread(target=self._run, args=(server, token), daemon=True).start()
+        threading.Thread(target=self._run, args=(args,), daemon=True).start()
         return {"ok": True}
 
-    def _run(self, server, token):
+    def _run(self, args):
         h = self.home
         try:
             # 프로그램이 업데이트되면 생성기도 새 것으로
             shutil.copy2(_here("lyricsync_worker.py"), os.path.join(h, "worker.py"))
             env = dict(self._uv_env(), PYTHONUTF8="1")
-            p = subprocess.Popen([self._py(), "-u", os.path.join(h, "worker.py"), "--home", h,
-                                  "--server", server, "--token", token],
+            p = subprocess.Popen([self._py(), "-u", os.path.join(h, "worker.py"), "--home", h, *args],
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, creationflags=NO_WINDOW,
                                  text=True, encoding="utf-8", errors="replace")
             with self.lock:
@@ -424,3 +591,102 @@ class LyricSync:
             except Exception:
                 pass
         return {"ok": True}
+
+    # ───── 폰에 보내기 (PC 폴더 방식으로 만든 가사) ─────
+    def start_send(self, server, token):
+        with self.lock:
+            if self.phase != "idle":
+                return {"ok": False, "error": "이미 작업 중이에요"}
+            if not self.home:
+                return {"ok": False, "error": "생성 도구가 설치돼 있지 않아요"}
+            if not token:
+                return {"ok": False, "error": "폰에 연결돼 있지 않아요"}
+            self.phase, self.error, self.notice, self.stopping = "sending", "", "", False
+            self.step = "폰에서 곡 목록을 받는 중…"
+            self.send = {"total": 0, "i": 0, "sent": 0, "notfound": 0, "finished": False}
+        threading.Thread(target=self._send, args=(server, token), daemon=True).start()
+        return {"ok": True}
+
+    def _send(self, server, token):
+        phone = PhoneAPI(server, token)
+        sent = self._json("sent.json", {})
+        notfound = set(self._json("notfound.json", []))
+        try:
+            try:
+                lib = phone.call("GET", "/api/library", timeout=60)
+            except urllib.error.HTTPError as e:
+                raise RuntimeError(REFUSED if e.code == 401 else f"폰에서 곡 목록을 받지 못했어요 (응답 {e.code})")
+            except Exception:
+                raise RuntimeError("폰에 연결할 수 없어요. 폰 앱을 켜고 다시 눌러 주세요.")
+            ids, by_meta, by_title = set(), {}, {}
+            for t in lib.get("tracks", []):
+                ids.add(t["id"])
+                sec = (t.get("duration") or 0) / 1000.0
+                by_meta.setdefault((_norm(t.get("title")), _norm(t.get("artist")), _norm(t.get("album"))), []).append((sec, t["id"]))
+                by_title.setdefault(_norm(t.get("title")), []).append((sec, t["id"]))
+
+            def match(o):
+                if o["id"] in ids:  # 곡 정보와 길이가 폰과 똑같으면 키도 같다
+                    return o["id"]
+                sec = o.get("seconds") or 0
+
+                def near(pool):
+                    return sorted((abs(s - sec), pid) for s, pid in pool if abs(s - sec) <= DUR_TOLERANCE)
+                # 제목·아티스트·앨범이 같고 길이가 비슷한 곡
+                same = near(by_meta.get((_norm(o.get("title")), _norm(o.get("artist")), _norm(o.get("album"))), []))
+                if same:
+                    return same[0][1]
+                # 아티스트·앨범 표기가 다르게 읽혔을 때: 제목과 길이로 하나만 맞으면 그 곡
+                by_t = near(by_title.get(_norm(o.get("title")), []))
+                return by_t[0][1] if len(by_t) == 1 else None
+
+            todo = self._pending(sent=sent)
+            with self.lock:
+                self.send["total"] = len(todo)
+                self.step = ""
+            for i, o in enumerate(todo, 1):
+                if self.stopping:
+                    break
+                pid = match(o)
+                if not pid:
+                    notfound.add(o["id"])
+                    with self.lock:
+                        self.send["i"], self.send["notfound"] = i, self.send["notfound"] + 1
+                    continue
+                with open(self._made(o["id"]), encoding="utf-8") as f:
+                    lrc = f.read()
+                try:
+                    phone.call("PUT", "/api/lyrics/" + urllib.parse.quote(pid, safe=""), {"lrc": lrc, "source": "aligned"})
+                except urllib.error.HTTPError as e:
+                    if e.code == 401:
+                        raise RuntimeError(REFUSED)
+                    notfound.add(o["id"])
+                    with self.lock:
+                        self.send["i"], self.send["notfound"] = i, self.send["notfound"] + 1
+                    continue
+                except Exception:
+                    raise RuntimeError("보내는 중에 폰 연결이 끊겼어요. 다시 누르면 남은 곡만 보내요.")
+                sent[o["id"]] = {"phone": pid, "at": int(time.time())}
+                notfound.discard(o["id"])
+                with self.lock:
+                    self.send["i"], self.send["sent"] = i, self.send["sent"] + 1
+                if i % 50 == 0:
+                    self._write_json("sent.json", sent)
+            with self.lock:
+                s = self.send
+                if not self.stopping:
+                    self.notice = ((f"{s['sent']}곡을 폰에 보냈어요" if s["sent"] else "새로 보낼 곡이 없어요")
+                                   + (f" · 폰에서 짝을 찾지 못한 곡 {s['notfound']}곡" if s["notfound"] else ""))
+        except Exception as e:
+            with self.lock:
+                self.error = str(e)
+        finally:
+            try:
+                self._write_json("sent.json", sent)
+                self._write_json("notfound.json", sorted(notfound))
+            except Exception:
+                pass
+            with self.lock:
+                if self.send:
+                    self.send["finished"] = True
+                self.phase, self.step = "idle", ""

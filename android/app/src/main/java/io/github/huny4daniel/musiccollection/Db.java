@@ -187,6 +187,10 @@ public class Db extends SQLiteOpenHelper {
         getWritableDatabase().insertWithOnConflict("lyrics", null, v, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
+    public synchronized void clearLyrics() {
+        getWritableDatabase().delete("lyrics", null, null);
+    }
+
     public synchronized void deleteLyrics(String key) {
         getWritableDatabase().delete("lyrics", "key = ?", new String[]{key});
     }

@@ -154,6 +154,11 @@ public class WebServer extends NanoHTTPD {
             case "stream":
                 return stream(s, arg);
             case "lyrics": {
+                if (arg == null) { // 만든 시간 가사를 모두 지운다 (PC 생성기의 결과 초기화)
+                    if (m != Method.DELETE) break;
+                    app.db.clearLyrics(); app.library.forgetAllLyrics();
+                    return ok();
+                }
                 if (m == Method.PUT) { // PC가 음원에 맞춰 만든 시간 가사를 저장한다
                     if (app.library.get(arg) == null) return json(Response.Status.NOT_FOUND, "{\"error\":\"no track\"}");
                     JSONObject b = body(s);

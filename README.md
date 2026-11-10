@@ -11,7 +11,9 @@
   - `js/mock.js`: 폰 없이 화면을 확인할 때 쓰는 가짜 라이브러리 (`mock.html`)
 - `pc/tape_player.py`: PC 프로그램 「테이프 박스」 (pywebview). 같은 Wi-Fi에서 폰을 찾아 폰이 내려주는 화면을 창으로 띄운다
   - `pc/lyricsync.py`: 싱크 가사 생성기의 설치·실행 관리. 고른 폴더 아래 `TapeBox-LyricSync`에 uv로 Python·PyTorch·모델을 따로 받는다 (exe에는 넣지 않음)
-  - `pc/lyricsync_worker.py`: 그 환경에서 도는 생성기. 폰에서 시간 정보 없는 가사의 곡을 받아 보컬 분리(demucs) 후 Whisper(stable-ts)로 줄마다 시각을 맞춰 LRC로 폰에 저장하고, 사본을 `made/`에 남긴다
+  - `pc/lyricsync_worker.py`: 그 환경에서 도는 생성기. 시간 정보 없는 가사의 곡을 보컬 분리(demucs) 후 Whisper(stable-ts)로 줄마다 시각을 맞춰 LRC로 만들어 `made/`에 남긴다
+    - PC 폴더 방식: PC에 복사한 음원 파일의 태그를 직접 읽어 만든다(폰 불필요). 다 만든 뒤 「폰에 보내기」가 폰 곡 목록과 제목·아티스트·앨범·길이로 짝을 맞춰 폰 DB에 넣는다
+    - 폰 방식: 폰에서 곡을 하나씩 받아 만들고 바로 저장한다. 연결이 끊기면 다시 붙을 때까지 기다린다
   - 지난번 주소를 먼저 확인하고, 없으면 PC의 사설 네트워크(가상 어댑터 제외)를 PC 주소와 가까운 순서로 훑어 8642 포트를 연 폰을 찾는다
   - 창의 쿠키를 `%APPDATA%\tape-player\webview`에 남겨 PIN은 처음 한 번만 넣는다
 - `android/`: 폰 앱 (Java)

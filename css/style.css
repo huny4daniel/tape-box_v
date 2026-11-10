@@ -647,6 +647,11 @@ img { display: block; }
 .ls-tab.on { border-color: var(--accent); color: var(--text); }
 .ls-search { margin-top: 10px; width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid transparent; border-radius: 8px; color: var(--text); font: inherit; font-size: 13.5px; padding: 8px 12px; outline: none; }
 .ls-search:focus { border-color: var(--text-3); }
+.ls-source { margin-top: 16px; display: flex; gap: 6px; flex-wrap: wrap; }
+.ls-reset { margin-left: auto; background: none; border: 0; color: var(--text-3); font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline; padding: 4px; }
+.ls-reset:hover { color: #e8806a; }
+.ls-check .ls-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-path { color: var(--text-3); word-break: break-all; }
 .ls-check-btns { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
 .ls-check-btns .btn { padding: 5px 12px; font-size: 12.5px; }
 .fd-foot { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-2); font-size: 13.5px; }

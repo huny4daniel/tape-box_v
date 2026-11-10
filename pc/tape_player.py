@@ -216,12 +216,29 @@ class Api:
     def ls_state(self):
         return self._ls.state()
 
-    def ls_pick_dir(self):
+    def _pick_folder(self):
         kind = getattr(getattr(webview, "FileDialog", None), "FOLDER", None) or webview.FOLDER_DIALOG
         r = self._window.create_file_dialog(kind)
         if not r:
-            return {"ok": False, "cancel": True}
-        return self._ls.set_parent(r[0] if isinstance(r, (list, tuple)) else r)
+            return None
+        return r[0] if isinstance(r, (list, tuple)) else r
+
+    def ls_pick_dir(self):
+        p = self._pick_folder()
+        return self._ls.set_parent(p) if p else {"ok": False, "cancel": True}
+
+    def ls_pick_music(self):
+        p = self._pick_folder()
+        return self._ls.set_music_dir(p) if p else {"ok": False, "cancel": True}
+
+    def ls_set_source(self, source):
+        return self._ls.set_source(source)
+
+    def ls_send(self, server, token):
+        return self._ls.start_send(server, token)
+
+    def ls_reset(self, server, token):
+        return self._ls.reset(server, token)
 
     def ls_install(self):
         return self._ls.install()

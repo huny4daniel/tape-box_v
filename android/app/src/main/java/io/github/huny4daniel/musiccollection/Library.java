@@ -203,6 +203,7 @@ public class Library {
     }
 
     public void forgetLyrics(String id) { lyricsCache.remove(id); }
+    public void forgetAllLyrics() { lyricsCache.clear(); }
 
     /** 재생기에 넣을 항목. 화면에서는 id만 넘기고 여기서 파일·표시 정보를 채운다. */
     public MediaItem toMediaItem(String id) {

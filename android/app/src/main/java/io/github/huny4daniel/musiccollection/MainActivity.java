@@ -10,6 +10,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -63,6 +65,15 @@ public class MainActivity extends ComponentActivity {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
+    /** 화면이 꺼져도 PC 접속이 끊기지 않도록 배터리 최적화에서 빼 달라고 한 번 묻는다 (이미 빠져 있으면 묻지 않음) */
+    private void askBatteryExemption() {
+        PowerManager pm = getSystemService(PowerManager.class);
+        if (pm == null || pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+        try {
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {}
+    }
+
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         app = App.get();
@@ -274,7 +285,9 @@ public class MainActivity extends ComponentActivity {
                 return o.toString();
             } catch (Exception e) { return "{}"; }
         }
-        @JavascriptInterface public void setServerEnabled(boolean on) { runOnUiThread(() -> app.setRemoteEnabled(on)); }
+        @JavascriptInterface public void setServerEnabled(boolean on) {
+            runOnUiThread(() -> { app.setRemoteEnabled(on); if (on) askBatteryExemption(); });
+        }
         @JavascriptInterface public void rescan() { app.rescan(null); }
 
         /** 고른 재생목록 폴더의 표시 이름 ("Music/Playlists"), 없으면 "" */
