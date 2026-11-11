@@ -49,10 +49,9 @@
   }
 
   // ───────── 표시 조각 ─────────
-  const TIERS = [[100, "인생곡"], [50, "애착"], [20, "단골"], [5, "익숙한"], [1, "첫 만남"]];
-  const tierOf = (plays) => { for (let i = 0; i < TIERS.length; i++) if (plays >= TIERS[i][0]) return { level: 5 - i, name: TIERS[i][1] }; return { level: 0, name: "아직 안 들어봄" }; };
-  const tierNext = (plays) => { for (let i = TIERS.length - 1; i >= 0; i--) if (plays < TIERS[i][0]) return TIERS[i]; return null; };
-  const aff = (plays) => { const lv = tierOf(plays).level; let s = '<span class="aff" title="' + esc(tierOf(plays).name + " · " + U.num(plays) + "회") + '">'; for (let i = 1; i <= 5; i++) s += '<i class="' + (i <= lv ? "f" : "") + '"></i>'; return s + "</span>"; };
+  // 많이 들은 앨범일수록 LP 재킷에 손때가 묻는다 (0~5단계)
+  const WEAR = [100, 50, 20, 5, 1];
+  const wearOf = (plays) => { const i = WEAR.findIndex((n) => plays >= n); return i < 0 ? 0 : 5 - i; };
   const isFresh = (t) => U.daysAgo(t.addedAt) < 14;
 
   function art(t, size, extra) {
@@ -79,22 +78,20 @@
     else first = `<span>${i + 1}</span>`;
     const lead = mode === "edit"
       ? `<span class="no pl-row-handle" data-handle title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span>`
-      : `<span class="no">${first}<i class="ic ic-play play"></i></span>`;
+      : `<span class="no">${first}</span>`;
     const tail = mode === "edit"
       ? `<button class="icon-btn" data-act="pl-remove" title="이 재생목록에서 빼기"><i class="ic ic-x"></i></button>`
       : `<button class="icon-btn more" data-act="more" title="더 보기"><i class="ic ic-more"></i></button>`;
     return `<div class="row${now ? " now" + (P.playing ? "" : " paused") : ""}" data-id="${esc(t.id)}" data-i="${i}">
-      ${lead}
-      <div class="t">${art(t, 120)}<div><b>${isFresh(t) ? '<span class="new-badge">NEW</span>' : ""}${esc(t.title)}${t.memo ? '<span class="memo-dot" title="메모가 있어요"></span>' : ""}</b><span>${artistLinks(t)}</span></div></div>
+      <span class="ck${mode === "edit" ? " off" : ""}"></span>${lead}
+      <div class="t"><span class="t-art">${art(t, 120)}${mode === "edit" ? "" : '<span class="play" title="재생"><i class="ic ic-play"></i></span>'}</span><div><b>${isFresh(t) ? '<span class="new-badge">NEW</span>' : ""}${esc(t.title)}${t.memo ? '<span class="memo-dot" title="메모가 있어요"></span>' : ""}</b><span>${artistLinks(t)}</span></div></div>
       <span class="alb"><a href="${albumHref(t)}" data-stop>${esc(t.album)}</a></span>
-      <span class="date${isFresh(t) ? " fresh" : ""}" title="${esc(U.fmtDateKo(t.addedAt))}에 수집">${U.fmtDate(t.addedAt)}</span>
-      ${aff(t.plays)}
-      <button class="icon-btn fav${t.fav ? " on" : ""}" data-act="fav" title="${t.fav ? "아끼는 곡에서 빼기" : "아끼는 곡으로"}"><i class="ic ${t.fav ? "ic-heart-fill" : "ic-heart"}"></i></button>
       <span class="dur">${U.fmtDur(t.duration)}</span>
+      <button class="icon-btn fav${t.fav ? " on" : ""}" data-act="fav" title="${t.fav ? "아끼는 곡에서 빼기" : "아끼는 곡으로"}"><i class="ic ${t.fav ? "ic-heart-fill" : "ic-heart"}"></i></button>
       ${tail}
     </div>`;
   }
-  const tlHead = (mode) => `<div class="tl-head"><span class="r">#</span><span>제목</span><span>앨범</span><span class="r">수집일</span><span class="r">애정도</span><span></span><span class="r">길이</span><span></span></div>`;
+  const tlHead = (mode) => `<div class="tl-head">${mode === "edit" ? '<span class="ck off"></span>' : '<button class="ck" data-act="sel-head" title="모두 선택"></button>'}<span class="r">#</span><span>제목</span><span>앨범</span><span class="r dur">길이</span><span></span><span></span></div>`;
   function trackList(name, tracks, mode) {
     lists[name] = tracks.map((t) => t.id);
     return `<div class="tracklist" data-list="${esc(name)}">${tlHead(mode)}${tracks.map((t, i) => row(t, i, mode)).join("")}</div>`;
@@ -237,7 +234,7 @@
       ${section("나의 테이프", null, `<div class="tape-row" data-hscroll>${tapes.map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`, "#/playlists")}
 
       ${recent.length ? section("최근 들은 곡", null, `<div class="shelf scroll">${recent.map((t) => trackCard(t, U.ago(t.lastPlayed) + " · " + t.artist)).join("")}</div>`) : ""}
-      ${section("새로 들인 곡", "가장 최근에 컬렉션에 들어온 노래들", `<div class="shelf scroll">${fresh.map((t) => trackCard(t, U.fmtDate(t.addedAt) + " 수집")).join("")}</div>`, "#/collection")}
+      ${section("새로 들인 곡", "가장 최근에 컬렉션에 들어온 노래들", `<div class="shelf scroll">${fresh.map((t) => trackCard(t)).join("")}</div>`, "#/collection")}
       ${longAgo.length ? section("오랜만이에요", "한때 자주 들었지만 한동안 못 만난 곡", `<div class="shelf scroll">${longAgo.map((t) => trackCard(t, "마지막 " + U.ago(t.lastPlayed))).join("")}</div>`) : ""}
       ${SHOW_UNHEARD && unheard.length ? section("아직 만나지 못한 곡", `소장했지만 한 번도 듣지 않은 곡이 ${U.num(unheard.length)}곡 있어요`, `<div class="shelf scroll">${U.pick(unheard, 14, rnd).map((t) => trackCard(t, t.artist)).join("")}</div>`, "#/collection/unheard") : ""}
       ${top.length ? section("가장 많이 들은 곡", null, trackList("home-top", top, "index")) : ""}
@@ -308,7 +305,7 @@
   const albumKeyOf = (t) => t.albumKey || "none:" + t.album;
   function lpAlbum(a, sub) {
     const now = P && P.current && albumKeyOf(P.current) === a.key;
-    const lv = tierOf(Math.round(a.plays / Math.max(1, a.tracks.length))).level; // 곡당 평균 재생으로 손때
+    const lv = wearOf(Math.round(a.plays / Math.max(1, a.tracks.length))); // 곡당 평균 재생으로 손때
     const url = a.key && !a.key.startsWith("none:") ? API.artUrl(a.key, 300) : "";
     const img = url ? `<img loading="lazy" decoding="async" alt="" src="${esc(url)}" onerror="this.remove()">` : "";
     const ph = U.phStyle(a.key + a.title);
@@ -386,17 +383,16 @@
   pages.collection = (arg) => {
     // 필터 칩은 없앴다. 주소로 들어온 필터(#/collection/unheard 등)만 쓰고, 그냥 들어오면 전체
     colState.filter = arg && FILTERS.some((f) => f[0] === arg) ? arg : "all";
-    const first = L.tracks.reduce((m, t) => Math.min(m, t.addedAt || Infinity), Infinity);
     $("#topbar-title").textContent = "곡 목록";
     return `<div class="page">
       <div class="hero"><div class="hero-text">
         <h1>곡 목록</h1>
-        <div class="hero-meta"><b>${U.num(L.tracks.length)}곡</b><span class="sep"></span><span>${isFinite(first) ? U.fmtDateKo(first) + "부터" : ""}</span><span class="sep"></span><span>${U.fmtLong(L.tracks.reduce((s, t) => s + (t.duration || 0), 0))}</span></div>
+        <div class="hero-meta"><b>${U.num(L.tracks.length)}곡</b><span class="sep"></span><span>${U.fmtLong(L.tracks.reduce((s, t) => s + (t.duration || 0), 0))}</span></div>
       </div></div>
       <div class="actions">
         <button class="play-fab" data-act="list-play" data-list="collection" title="재생"><i class="ic ic-play"></i></button>
         <button class="icon-btn${P.shuffle ? " on" : ""}" data-act="list-shuffle" data-list="collection" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
-        ${selBtn("collection")}
+        ${selBtn("collection", true)}
         <span style="flex:1"></span>
         <label class="select"><select data-act="col-sort">${SORTS.map(([k, n]) => `<option value="${k}"${k === colState.sort ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       </div>
@@ -485,7 +481,7 @@
         <button class="play-fab" data-act="list-play" data-list="album"><i class="ic ic-play"></i></button>
         <button class="icon-btn" data-act="list-shuffle" data-list="album" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
         ${selBtn("album")}
-        <span class="dimmer" style="font-size:13px">${U.fmtDateKo(a.addedAt)} 컬렉션에 들어옴 · 모두 ${U.num(plays)}번 재생</span>
+        <span class="dimmer" style="font-size:13px">모두 ${U.num(plays)}번 재생</span>
       </div>
       ${trackList("album", T, "album")}
       ${more.length ? section(a.artist + "의 다른 앨범", null, `<div class="shelf scroll">${more.map((x) => albumCard(x, (x.year || "") + " · " + x.tracks.length + "곡")).join("")}</div>`) : ""}
@@ -524,7 +520,6 @@
     if (!t) return notFound();
     tintFromArt(t);
     $("#topbar-title").textContent = t.title;
-    const tier = tierOf(t.plays), nx = tierNext(t.plays);
     const albumT = (L.albums.get(t.albumKey) || { tracks: [] }).tracks;
     const inLists = L.playlists.filter((p) => p.items.includes(t.id));
     const rank = L.tracks.filter((x) => x.plays > t.plays).length + 1;
@@ -540,13 +535,11 @@
       </div>
       <div class="plaque">
         <div><span>수집한 날</span><b>${U.fmtDate(t.addedAt)}</b></div>
-        <div><span>애정도</span><b class="tier-name">${esc(tier.name)} ${aff(t.plays)}</b></div>
         <div><span>들은 횟수</span><b>${U.num(t.plays)}<small>회${t.plays ? " · " + U.num(rank) + "위" : ""}</small></b></div>
         <div><span>함께한 시간</span><b>${U.fmtLong(t.listenedMs)}</b></div>
         <div><span>처음 들은 날</span><b>${t.firstPlayed ? U.fmtDate(t.firstPlayed) : "—"}</b></div>
         <div><span>마지막으로 들은 날</span><b>${t.lastPlayed ? U.ago(t.lastPlayed) : "—"}</b></div>
       </div>
-      ${nx ? `<p class="dimmer" style="margin:10px 2px 0;font-size:13px">${nx[0] - t.plays}번 더 들으면 「${nx[1]}」이 돼요</p>` : ""}
       <div class="memo-box"><h3>이 곡에 남기는 메모</h3>
         <textarea data-act="memo" data-id="${esc(t.id)}" placeholder="이 노래를 처음 들은 곳, 떠오르는 사람, 그때의 계절…">${esc(t.memo || "")}</textarea>
         <div class="hint"><span>${inLists.length ? "담긴 재생목록: " + inLists.map((p) => `<a href="#/playlist/${encodeURIComponent(p.id)}" style="color:var(--text-2)">${esc(p.name)}</a>`).join(", ") : ""}</span><span id="memo-state"></span></div>
@@ -677,9 +670,12 @@
     const hit = (o) => cho ? o._cho.includes(q) : o._q.includes(q);
     const score = (s, name) => { const n = U.norm(name); return n === q ? 0 : n.startsWith(q) ? 1 : 2; };
     const tracks = L.tracks.filter(hit).sort((a, b) => score(0, a.title) - score(0, b.title) || b.plays - a.plays).slice(0, 50);
-    const artists = Array.from(L.artists.values()).filter(hit).sort((a, b) => score(0, a.name) - score(0, b.name) || b.tracks.length - a.tracks.length).slice(0, 12);
-    const albums = Array.from(L.albums.values()).filter(hit).sort((a, b) => score(0, a.title) - score(0, b.title) || b.plays - a.plays).slice(0, 12);
-    return { tracks, artists, albums };
+    const artists = Array.from(L.artists.values()).filter(hit).sort((a, b) => score(0, a.name) - score(0, b.name) || b.tracks.length - a.tracks.length).slice(0, 50);
+    const albums = Array.from(L.albums.values()).filter(hit).sort((a, b) => score(0, a.title) - score(0, b.title) || b.plays - a.plays).slice(0, 50);
+    // 테이프(재생목록)는 이름과 설명으로 찾는다. 목록이 자주 바뀌어 미리 만들어 둔 색인 없이 그때그때 본다
+    const tapes = sortedTapes().filter((pl) => { const n = U.norm(pl.name + " " + (pl.desc || "")); return cho ? U.chosung(n).includes(q) : n.includes(q); })
+      .sort((a, b) => score(0, a.name) - score(0, b.name)).slice(0, 50);
+    return { tracks, artists, albums, tapes };
   }
   pages.search = () => {
     $("#topbar-title").textContent = "검색";
@@ -693,27 +689,38 @@
   };
   pages.search.after = () => {
     const inp = $("#q");
-    const run = () => {
+    // 갈래마다 5개까지만 보이고 "모두 보기"로 펼친다. 검색어가 바뀌면 다시 접는다
+    const SHOW = 5;
+    let opened = new Set();
+    const part = (kind, title, items, body) => {
+      const open = opened.has(kind), list = open ? items : items.slice(0, SHOW);
+      const more = items.length > SHOW && !open ? `<a href="#/search" data-search-all="${kind}">모두 보기</a>` : "";
+      return section(title, null, body(list, open)).replace("</h2></div></div>", `</h2></div>${more}</div>`);
+    };
+    const run = (keep) => {
+      if (keep !== true) opened = new Set();
       lastQuery = inp.value;
       const r = search(inp.value);
       $("#search-browse").hidden = !!r;
       const box = $("#search-res");
       if (!r) { box.innerHTML = ""; return; }
-      if (!r.tracks.length && !r.artists.length && !r.albums.length) { box.innerHTML = `<div class="empty"><b>테이프 박스에 「${esc(inp.value)}」에 맞는 곡이 없어요</b>철자를 확인하거나 다른 말로 찾아보세요.</div>`; return; }
-      const topArtist = r.artists[0], topT = r.tracks[0];
-      const topIsArtist = topArtist && (!topT || U.norm(topArtist.name).startsWith(U.norm(inp.value)));
-      const topCard = topIsArtist
-        ? `<a class="hit-card" href="#/artist/${encodeURIComponent(topArtist.name)}"><div style="width:96px">${art(topAlbumOf(topArtist), 300, "")}</div><b>${esc(topArtist.name)}</b><span>아티스트 · 소장 ${topArtist.tracks.length}곡</span></a>`
-        : topT ? `<a class="hit-card" href="#/track/${encodeURIComponent(topT.id)}">${art(topT, 300)}<b>${esc(topT.title)}</b><span>곡 · ${esc(topT.artist)}</span><button class="play-fab fab" data-act="track-play" data-id="${esc(topT.id)}"><i class="ic ic-play"></i></button></a>` : "";
-      box.innerHTML = `
-        ${r.tracks.length || topCard ? `<div class="top-hit" style="margin-top:26px"><div><div class="section-head"><h2>가장 잘 맞는 결과</h2></div>${topCard}</div>
-          <div><div class="section-head"><h2>곡</h2></div>${trackList("search", r.tracks.slice(0, 5), "collection").replace('class="tl-head"', 'class="tl-head" hidden')}</div></div>` : ""}
-        ${r.tracks.length > 5 ? section("곡 더 보기", null, trackList("search-more", r.tracks.slice(5), "collection")) : ""}
-        ${r.artists.length ? section("아티스트", null, `<div class="shelf scroll">${r.artists.map(artistCard).join("")}</div>`) : ""}
-        ${r.albums.length ? section("앨범", null, `<div class="shelf scroll">${r.albums.map((a) => albumCard(a)).join("")}</div>`) : ""}`;
+      if (!r.tracks.length && !r.artists.length && !r.albums.length && !r.tapes.length) { box.innerHTML = `<div class="empty"><b>테이프 박스에 「${esc(inp.value)}」에 맞는 곡이 없어요</b>철자를 확인하거나 다른 말로 찾아보세요.</div>`; return; }
+      // 곡 → 앨범 → 아티스트 순. 검색어가 아티스트 이름과 딱 맞으면 아티스트를 맨 위로
+      const parts = [
+        r.tracks.length ? part("tracks", "곡", r.tracks, (l) => trackList("search", l, "collection")) : "",
+        r.albums.length ? part("albums", "앨범", r.albums, (l, open) => `<div class="shelf${open ? "" : " scroll"}">${l.map((a) => albumCard(a)).join("")}</div>`) : "",
+        r.artists.length ? part("artists", "아티스트", r.artists, (l, open) => `<div class="shelf${open ? "" : " scroll"}">${l.map(artistCard).join("")}</div>`) : "",
+        r.tapes.length ? part("tapes", "테이프", r.tapes, (l) => `<div class="tape-row" data-hscroll>${l.map(tapeItem).join("")}</div>`) : "",
+      ];
+      const nq = U.norm(inp.value);
+      if (r.artists.some((a) => U.norm(a.name) === nq)) parts.unshift(parts.splice(2, 1)[0]);
+      box.innerHTML = `<div style="margin-top:26px">${parts.join("")}</div>`;
+      box.querySelectorAll("[data-search-all]").forEach((a) => a.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation(); opened.add(a.dataset.searchAll); run(true);
+      }));
       if (SEL.on) syncSel();
     };
-    inp.addEventListener("input", U.debounce(run, 120));
+    inp.addEventListener("input", U.debounce(() => run(), 120));
     if (lastQuery) run();
     if (!isMobile() || !lastQuery) setTimeout(() => inp.focus(), 50);
   };
@@ -1553,7 +1560,7 @@
     if (U.clickSuppressed()) { e.preventDefault(); e.stopPropagation(); return; }
     // 여러 곡 선택: 선택 중에는 곡 줄·카드를 누르면 고르기만 한다. PC는 Ctrl/Shift+클릭으로 바로 시작
     const pickEl = e.target.closest("#view .row[data-id], #view .card[data-id]");
-    if (pickEl && !pickEl.closest(".add-finder") && !e.target.closest('[data-act="fav"], [data-handle]') && (SEL.on || (!isMobile() && (e.ctrlKey || e.metaKey || e.shiftKey)))) {
+    if (pickEl && !pickEl.closest(".add-finder") && !e.target.closest('[data-act="fav"], [data-handle]') && (SEL.on || e.target.closest(".row .ck:not(.off)") || (!isMobile() && (e.ctrlKey || e.metaKey || e.shiftKey)))) {
       e.preventDefault(); e.stopPropagation();
       if (!SEL.on) { SEL.on = true; $$(".row.sel").forEach((r) => r.classList.remove("sel")); }
       selPick(pickEl, e.shiftKey);
@@ -1622,6 +1629,7 @@
         case "pl-tape-play": { e.preventDefault(); const name = a.dataset.list; const ctx = ctxFor(name); const pl = name === "liked" ? likedPl() : curPlaylist(); if (P.current && P.context && P.context.id === ctx.id) P.toggle(); else if (pl && pl.items.length) P.playList(pl.items, 0, ctx); return; }
         case "pl-edit": plEdit = !plEdit; if (SEL.on) selEnd(); rerender(); return;
         case "sel-start": selStart(null, a.dataset.list); return;
+        case "sel-head": selHead(a); return;
         case "sel-cancel": selEnd(); return;
         case "sel-all": selAll(); return;
         case "sel-play": case "sel-shuffle": {
@@ -1667,7 +1675,7 @@
     if (tp) { const id = tp.dataset.pl; location.hash = id === "liked" ? "#/liked" : "#/playlist/" + encodeURIComponent(id); return; }
     // 곡 줄: 폰은 한 번 누르면 재생, PC는 선택(두 번 누르면 재생)
     if (rowEl) {
-      if (e.target.closest(".no .play")) { playRow(rowEl); return; }
+      if (e.target.closest(".t-art .play")) { playRow(rowEl); return; }
       if (rowEl.closest(".add-finder")) return;
       if (isMobile()) { playRow(rowEl); return; }
       $$(".row.sel").forEach((r) => r.classList.remove("sel")); rowEl.classList.add("sel");
@@ -1764,7 +1772,7 @@
   // ───────── 여러 곡 선택 → 현재 재생목록으로 묶어 재생 ─────────
   // ids는 고른 순서대로. 재생하면 그 순서가 그대로 지금 듣는 (임시) 재생목록이 된다
   const SEL = { on: false, ids: [], list: "", last: null };
-  const selBtn = (list) => `<button class="icon-btn sel-btn" data-act="sel-start" data-list="${esc(list)}" title="여러 곡 선택"><i class="ic ic-check"></i></button>`;
+  const selBtn = (list, keep) => `<button class="icon-btn sel-btn${keep ? "" : " m-only"}" data-act="sel-start" data-list="${esc(list)}" title="여러 곡 선택"><i class="ic ic-check"></i></button>`;
   function selStart(id, list) {
     SEL.on = true; SEL.list = list || SEL.list;
     if (id && !SEL.ids.includes(id)) { SEL.ids.push(id); SEL.last = id; }
@@ -1798,9 +1806,28 @@
     else scope.forEach((id) => { if (!SEL.ids.includes(id)) SEL.ids.push(id); });
     syncSel();
   }
+  // 목록 머리의 체크박스: 그 목록을 모두 고르고, 이미 다 골랐으면 모두 풀고 선택을 끝낸다
+  function selHead(btn) {
+    const box = btn.closest("[data-list]"), name = box && box.dataset.list, arr = name && lists[name];
+    if (!arr || !arr.length) return;
+    if (SEL.on && arr.every((id) => SEL.ids.includes(id))) {
+      SEL.ids = SEL.ids.filter((id) => !arr.includes(id));
+      if (!SEL.ids.length) { selEnd(); return; }
+    } else {
+      if (!SEL.on) { SEL.on = true; $$(".row.sel").forEach((r) => r.classList.remove("sel")); }
+      arr.forEach((id) => { if (!SEL.ids.includes(id)) SEL.ids.push(id); });
+    }
+    SEL.list = name; syncSel();
+  }
   function markPicked() {
     const set = new Set(SEL.ids);
     $$("#view .row[data-id], #view .card[data-id]").forEach((el) => el.classList.toggle("picked", set.has(el.dataset.id)));
+    $$('#view [data-list] > .tl-head [data-act="sel-head"]').forEach((b) => {
+      const arr = lists[b.closest("[data-list]").dataset.list] || [];
+      const n = arr.filter((id) => set.has(id)).length;
+      b.classList.toggle("on", SEL.on && n > 0 && n === arr.length);
+      b.classList.toggle("some", SEL.on && n > 0 && n < arr.length);
+    });
   }
   function syncSel() {
     document.body.classList.toggle("selecting", SEL.on);
@@ -1848,8 +1875,6 @@
     t.plays++; t.lastPlayed = now; if (!t.firstPlayed) t.firstPlayed = now;
     const a = L.albums.get(t.albumKey); if (a) { a.plays++; a.lastPlayed = now; }
     t._artists.forEach((n) => { const r = L.artists.get(n); if (r) r.plays++; });
-    const nm = tierOf(t.plays);
-    if (TIERS.some(([n]) => n === t.plays) && t.plays > 1) toast(`「${t.title}」이(가) ${nm.name}이 됐어요 · ${t.plays}회`);
   }
 
   // ───────── 시작 ─────────

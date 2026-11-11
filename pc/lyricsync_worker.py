@@ -31,6 +31,14 @@ FIX_STEP = (0.8, 6.0)  # 나눠 넣을 때 한 줄 간격(초)이 이 범위를 
 FIX_RATIO = 0.1      # 고치지 못한 줄이 이 비율을 넘으면 확인 필요
 WAIT_PHONE = 30 * 60  # 폰 연결이 끊겼을 때 다시 붙기를 기다리는 최대 시간(초)
 AUDIO_EXT = (".mp3", ".flac", ".m4a", ".mp4", ".aac", ".ogg", ".oga", ".opus", ".wav")
+# 정렬 설정. 처음 것으로 확인 필요가 나오면 음성 구간 감지를 끄고 한 번 더 맞춰 본다
+# (감지가 노래 구간을 잘라 먹으면 중간부터 가사를 놓친다). 감지를 끄면 가사가 간주에 퍼져 붙을 수 있어서,
+# 다시 맞춘 결과는 처음 결과에서 제대로 잡힌 줄들과 시간이 맞을 때만 받아들인다
+TRIES = (dict(denoiser="demucs", vad=True), dict(denoiser="demucs", vad=False))
+ANCHOR_MIN = 0.5     # 처음 결과에서 제대로 잡힌 줄이 이 비율보다 적으면 비교할 근거가 없어 다시 맞추지 않는다
+AGREE_SEC = 1.0      # 다시 맞춘 결과가 제대로 잡힌 줄과 이 시간(초) 안쪽이면 같은 자리로 본다
+AGREE_MIN = 0.9      # 제대로 잡힌 줄 중 이 비율 이상이 같은 자리여야 받아들인다
+READING = "발음·번역 줄이 섞인 가사"
 MADE = ("done", "check", "kept", "restored")  # 만든 가사가 있는 상태
 REFUSED = "폰이 연결을 거부했어요. PC 프로그램에서 PIN으로 다시 연결해 주세요."
 
@@ -153,6 +161,31 @@ def song_language(text, default):
     return "en" if latin else default
 
 
+def has_reading(text):
+    """일본어·중국어 원문 줄 바로 뒤에 한글 발음·번역 줄이 붙어 있는 가사인지.
+    부르지 않는 줄이 섞여 있어 정렬하면 시간이 틀어지므로 만들지 않는다.
+    원문과 한국어를 실제로 섞어 부르는 곡은 줄이 덩어리로 나뉘어 있어 걸리지 않는다"""
+    # 원문 줄 덩어리(로마자 발음 줄이 끼어 있어도 이어진 것으로 본다) 뒤에 한글 줄이 오는 횟수를 센다
+    blocks = korean = pairs = 0
+    prev, waiting = None, False
+    for line in text.replace("\r", "\n").split("\n"):
+        if not line.strip():
+            continue
+        hangul = any("가" <= c <= "힣" for c in line)
+        kana = any("぀" <= c <= "ヿ" for c in line)
+        han = sum(1 for c in line if "一" <= c <= "鿿")
+        if hangul:
+            korean += 1
+            if waiting:
+                pairs += 1
+            waiting, prev = False, "ko"
+        elif kana or han >= 2:
+            if prev != "fo":
+                blocks += 1
+            waiting, prev = True, "fo"
+    return pairs >= 5 and pairs >= 0.6 * blocks and korean >= blocks
+
+
 def settle(lines):
     """[시작, 끝, 글] 목록에서 앞 줄과 한 시점에 몰린 줄을 고친다.
     몇 줄만 몰렸고 다음 줄까지 간격이 자연스러우면 그 사이에 고르게 나눠 넣고,
@@ -193,30 +226,51 @@ def build_lrc(lines):
 
 
 def judge(lines, issues):
+    """(LRC, 문제 목록, 줄마다 시작 시각 — 앞뒤 줄과 몰리지 않고 제대로 잡힌 줄만, 나머지는 None)"""
+    starts = [l[0] for l in lines]
+    n = len(starts)
+    anchors = [t if (i == 0 or t - starts[i - 1] >= STACK_GAP) and (i == n - 1 or starts[i + 1] - t >= STACK_GAP) else None
+               for i, t in enumerate(starts)]
     bad = settle(lines)
     if bad and bad / len(lines) > FIX_RATIO or bad > FIX_RUN:
         issues.append(f"{bad}줄이 앞 줄과 같은 시점에 몰림")
-    return build_lrc(lines), sorted(set(issues))
+    return build_lrc(lines), sorted(set(issues)), anchors
 
 
-def align(model, audio, text, language):
+def agrees(first, again):
+    """다시 맞춘 결과가 처음 결과에서 제대로 잡힌 줄들과 같은 자리에 있는지"""
+    a, b = first[2], again[2]
+    if len(a) != len(b):
+        return False
+    pairs = [(x, y) for x, y in zip(a, b) if x is not None]
+    if not pairs:
+        return False
+    # 다시 맞춘 쪽은 몰린 줄을 나눠 넣었을 수 있으니 처음 시각(나눠 넣기 전)과 비교한다
+    near = sum(1 for x, y in pairs if y is not None and abs(x - y) <= AGREE_SEC)
+    return near >= AGREE_MIN * len(pairs)
+
+
+def worth_retry(first):
+    """처음 결과에 제대로 잡힌 줄이 충분해야 다시 맞춘 결과를 검증할 수 있다"""
+    a = first[2]
+    return bool(a) and sum(1 for x in a if x is not None) >= ANCHOR_MIN * len(a)
+
+
+def align(model, audio, text, language, opts=TRIES[0]):
     lines = [l.strip() for l in text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if l.strip()]
     if not lines:
-        return None, ["가사가 비어 있음"]
-    with warnings.catch_warnings(record=True) as caught:
+        return None, ["가사가 비어 있음"], []
+    with warnings.catch_warnings(record=True):  # 경고가 출력으로 새지 않게 모아 버린다
         warnings.simplefilter("always")
         result = model.align(audio, "\n".join(lines), language=language, original_split=True,
-                             denoiser="demucs", vad=True, verbose=None)
+                             verbose=None, **opts)
     segs = [s for s in result.segments if s.text.strip()]
     if not segs:
-        return None, ["정렬 결과가 없음"]
+        return None, ["정렬 결과가 없음"], []
 
+    # 정렬 중 경고(일부 줄이 비었거나 끝의 몇 단어를 놓침)는 따로 보지 않는다.
+    # 실제로 놓친 줄은 앞 줄과 같은 시점에 몰리므로 아래 판정에서 걸러진다
     issues = []
-    for w in caught:
-        m = str(w.message)
-        # 줄 몇 개가 비어 버린 경고는 아래에서 몰린 줄로 따로 다룬다. 뒤쪽을 통째로 놓친 경우만 문제로 본다
-        if m.startswith("Failed to align the last") or m.startswith("Alignment aborted"):
-            issues.append("뒷부분을 정렬하지 못함")
     if len(segs) != len(lines):
         issues.append(f"줄 수가 달라짐 ({len(lines)} → {len(segs)})")
     return judge([[s.start, s.end, s.text.strip()] for s in segs], issues)
@@ -245,7 +299,7 @@ def rejudge(path):
     if not lines:
         return None
     if lines[-1][0] - lines[0][0] < STACK_GAP * len(lines) / 2:
-        return build_lrc(lines), ["정렬 결과가 없음"]
+        return build_lrc(lines), ["정렬 결과가 없음"], [None] * len(lines)
     return judge(lines, [])
 
 
@@ -314,8 +368,10 @@ class Run:
         if not quiet and (p.get("status") != "skip" or p.get("reason") != reason):  # 바뀐 것만 남겨 기록이 불어나지 않게
             self.record(status="skip", reason=reason, **info)
 
-    def make(self, audio, plain, info):
-        """정렬해서 made/에 저장. 성공하면 LRC, 실패하면 None"""
+    def make(self, audio, plain, info, start=0, best=None):
+        """정렬해서 made/에 저장. 성공하면 LRC, 실패하면 None.
+        확인 필요가 나오면 다른 설정으로 다시 맞춰 보고, 기준을 통과하면서 처음 결과와 어긋나지 않을 때만 그것으로 바꾼다.
+        start·best는 예전에 몇 번째 설정까지 해 봤고 그때 결과가 무엇이었는지"""
         if self.model is None:
             emit(type="step", text="모델을 불러오는 중…")
             self.model, device = load_model(self.home, self.model_name)
@@ -323,8 +379,21 @@ class Run:
         emit(type="working", **info)
         started = time.time()
         lang = song_language(plain, self.language)
-        info = dict(info, lang=lang)
-        lrc, issues = align(self.model, audio, plain, lang)
+        tries = start
+        if best is None:
+            best, tries = align(self.model, audio, plain, lang, TRIES[0]), 1
+        first = best
+        for k in range(tries, len(TRIES)):
+            if first[0] is None or not first[1] or not worth_retry(first):
+                break
+            emit(type="step", text="다른 설정으로 다시 맞춰 보는 중…")
+            again = align(self.model, audio, plain, lang, TRIES[k])
+            tries = k + 1
+            if again[0] is not None and not again[1] and agrees(first, again):
+                best = again
+                break
+        info = dict(info, lang=lang, tries=tries)
+        lrc, issues = best[:2]
         if lrc is None:
             emit(type="track", status="fail", reason=", ".join(issues), **info)
             self.record(status="fail", reason=", ".join(issues), **info)
@@ -352,10 +421,13 @@ class Run:
         got = rejudge(path)
         if got is None:
             return self.make(audio, plain, info)
-        lrc, issues = got
+        lrc, issues, _ = got
         reason = ", ".join(issues)
         info = dict(info, lang=lang)
+        if issues and p.get("tries", 1) < len(TRIES) and worth_retry(got):  # 아직 해 보지 않은 정렬 설정이 있으면 마저 해 본다
+            return self.make(audio, plain, info, start=p.get("tries", 1), best=got)
         if issues:
+            info["tries"] = p.get("tries", 1)
             emit(type="track", status="skip", reason="이미 만든 곡", **info)
             if reason != p.get("reason"):
                 self.record(status="check", reason=reason, **info)
@@ -403,6 +475,8 @@ def run_folder(home, folder, model_name, language):
                 run.skip("파일에 이미 시간 가사가 있음", info)
             elif prev == "rejected":  # 결과가 틀려서 되돌린 곡은 다시 만들지 않는다
                 emit(type="track", status="skip", reason="되돌린 곡", **info)
+            elif prev not in ("kept", "restored") and has_reading(meta["plain"]):
+                run.skip(READING, info)
             elif prev in ("check", "done") and os.path.exists(made_path(home, key)) and meta["plain"].strip():
                 run.recheck(path, meta["plain"], info)
             elif prev in MADE and os.path.exists(made_path(home, key)):
@@ -526,6 +600,9 @@ def run_phone(home, server, token, model_name, language):
             plain = lyr.get("plain")
             if not plain or not plain.strip():
                 run.skip("가사가 없음", info)
+                continue
+            if has_reading(plain):
+                run.skip(READING, info)
                 continue
             audio = os.path.join(home, "tmp", "current.audio")
             phone.download("/api/stream/" + q(tid), audio)

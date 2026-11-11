@@ -247,10 +247,10 @@ img { display: block; }
 .hero-desc { color: var(--text-2); margin: 0 0 8px; }
 
 /* ───────── 곡 목록 = 소장 목록 ───────── */
-.tracklist { margin: 0 -12px; }
+.tracklist { margin: 0 5px; } /* 곡 목록 표를 좌우로 조금 안쪽에 둔다 */
 .tl-head, .row {
   display: grid; align-items: center; gap: 14px;
-  grid-template-columns: 64px minmax(0, 4fr) minmax(0, 2.6fr) 110px 70px 34px 46px 34px;
+  grid-template-columns: 20px 48px minmax(0, 4fr) minmax(0, 2.6fr) 58px 34px 34px;
   padding: 0 12px;
 }
 .tl-head {
@@ -259,6 +259,8 @@ img { display: block; }
   position: sticky; top: 60px; z-index: 3; background: var(--surface);
 }
 .tl-head .r { text-align: right; }
+.tl-head > .ck + .r, .row .no { padding-right: 20px; }
+.tl-head .dur, .row .dur { padding-right: 12px; } /* 길이와 하트 사이를 띄운다 */ /* #과 제목 사이를 띄운다 */
 .row { height: 60px; border-radius: 6px; cursor: default; }
 .row:hover { background: rgba(255,255,255,.055); }
 .row.sel { background: rgba(255,255,255,.1); }
@@ -267,9 +269,14 @@ img { display: block; }
   font-variant-numeric: tabular-nums; letter-spacing: .02em;
 }
 .row .no small { font-size: 9px; margin-right: 1px; opacity: .8; }
-.row .no .play { display: none; position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
-.row:hover .no span { visibility: hidden; }
-.row:hover .no .play { display: block; color: var(--text); }
+/* 재생 버튼은 앨범 아트 위에 겹쳐 띄운다 */
+.row .t-art { position: relative; flex: none; display: block; line-height: 0; }
+.row .t-art .play {
+  position: absolute; inset: 0; z-index: 2; display: none; place-items: center;
+  background: rgba(0,0,0,.5); border-radius: 4px; color: #fff; cursor: pointer;
+}
+.row:hover .t-art .play { display: grid; }
+@media (hover: none) { .row:hover .t-art .play { display: none; } } /* 폰은 줄을 누르면 바로 재생 */
 .row.now .no span { visibility: hidden; }
 .row.now .no::after { /* 재생 중 이퀄라이저 */
   content: ""; position: absolute; right: 2px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%);
@@ -277,7 +284,6 @@ img { display: block; }
   animation: eq 0.9s infinite alternate ease-in-out;
 }
 .row.now.paused .no::after { animation: none; }
-.row:hover.now .no::after { display: none; }
 @keyframes eq { 0% { background-size: 3px 30%, 3px 90%, 3px 50%; } 50% { background-size: 3px 90%, 3px 40%, 3px 100%; } 100% { background-size: 3px 50%, 3px 100%, 3px 30%; } }
 .row .t { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .row .t .art { width: 44px; --s: 44px; }
@@ -287,9 +293,6 @@ img { display: block; }
 .row .t div > span { display: block; color: var(--text-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .t span a:hover, .row .alb a:hover { color: var(--text); text-decoration: underline; }
 .row .alb { color: var(--text-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .date { color: var(--text-3); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
-.row .date.fresh { color: var(--accent); font-weight: 700; }
-.row .aff { justify-self: end; }
 .row .fav { color: var(--text-3); visibility: hidden; }
 .row:hover .fav, .row .fav.on { visibility: visible; }
 .row .fav.on, [data-act="fav"].on { color: var(--love) !important; }
@@ -298,12 +301,6 @@ img { display: block; }
 .row:hover .more { visibility: visible; }
 .row .memo-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: 2px; }
 .row .new-badge { display: inline-block; font-size: 10px; font-weight: 800; color: var(--accent-ink); background: var(--accent); border-radius: 3px; padding: 0 4px; margin-right: 6px; vertical-align: 1px; letter-spacing: .02em; }
-
-/* 애정도: 재생 횟수에 따라 채워지는 다섯 칸 */
-.aff { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; }
-.aff i { width: 3px; border-radius: 1px; background: var(--surface-3); }
-.aff i:nth-child(1) { height: 5px; } .aff i:nth-child(2) { height: 7px; } .aff i:nth-child(3) { height: 9px; } .aff i:nth-child(4) { height: 11px; } .aff i:nth-child(5) { height: 14px; }
-.aff i.f { background: var(--accent); }
 
 /* 수집 시기 묶음 */
 .era { content-visibility: auto; contain-intrinsic-size: auto 800px; }
@@ -354,20 +351,12 @@ img { display: block; }
 .memo-box .hint { color: var(--text-3); font-size: 12px; margin-top: 6px; display: flex; justify-content: space-between; }
 .lyr-box { margin-top: 30px; }
 .lyr-box pre { margin: 0; font: inherit; font-size: 16px; line-height: 1.9; white-space: pre-wrap; color: var(--text-2); font-weight: 600; }
-.tier-name { display: inline-flex; align-items: center; gap: 8px; }
 
 /* ───────── 검색 ───────── */
 .search-box { position: relative; width: min(380px, 100%); }
 .search-box input { width: 100%; height: 44px; border-radius: 99px; border: 0; background: var(--surface-2); padding: 0 16px 0 44px; font-size: 15px; outline: none; box-shadow: inset 0 0 0 1px var(--line); }
 .search-box input:focus { box-shadow: inset 0 0 0 2px var(--text); }
 .search-box .ic { position: absolute; left: 14px; top: 12px; color: var(--text-2); }
-.top-hit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 20px; }
-.hit-card { background: var(--surface-2); border-radius: 10px; padding: 20px; position: relative; }
-.hit-card:hover { background: var(--surface-3); }
-.hit-card .art { width: 96px; --s: 96px; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
-.hit-card b { display: block; font-size: 28px; font-weight: 900; margin-top: 18px; letter-spacing: -.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hit-card span { color: var(--text-2); }
-.hit-card .fab { position: absolute; right: 20px; bottom: 20px; width: 48px; height: 48px; }
 .genre-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
 .genre { position: relative; height: 110px; border-radius: 10px; overflow: hidden; padding: 14px; font-size: 20px; font-weight: 800; letter-spacing: -.02em; background: var(--g); }
 .genre .art { position: absolute; width: 74px; right: -12px; bottom: -6px; transform: rotate(24deg); box-shadow: 0 4px 12px rgba(0,0,0,.4); --s: 74px; }
@@ -562,12 +551,14 @@ img { display: block; }
   .tracklist { margin: 0 -8px; }
   .row { display: flex; height: 62px; padding: 0 8px; gap: 10px; }
   .row .t { flex: 1; }
-  .row .no, .row .alb, .row .date, .row .aff, .row .dur, .row .fav:not(.on) { display: none; }
+  .row .no, .row .alb, .row .dur, .row .fav:not(.on) { display: none; }
   .row .fav.on { display: grid; visibility: visible; width: 22px; }
   .row .fav.on .ic { width: 16px; height: 16px; }
   .row .more { visibility: visible; }
   .row .t .art { width: 48px; --s: 48px; }
   .row .t .sub-no { display: inline; }
+  .row .ck { display: none; }
+  body.selecting #view .row .ck:not(.off) { display: block; flex: none; }
   .row:hover { background: none; }
   .row:active { background: rgba(255,255,255,.06); }
   .era-head { padding: 22px 8px 8px; }
@@ -590,7 +581,6 @@ img { display: block; }
   .card .fab { display: none; }
   .greet h1 { font-size: 24px; }
   .stats b { font-size: 18px; }
-  .top-hit { grid-template-columns: 1fr; }
   .section-head h2 { font-size: 20px; }
   .menu-box { left: 8px !important; right: 8px !important; top: auto !important; bottom: calc(8px + var(--safe-b)) !important; max-width: none; padding: 6px; border-radius: 14px; }
   .menu-box button { padding: 13px 12px; font-size: 15px; }
@@ -673,13 +663,20 @@ img { display: block; }
 .icon-btn[disabled] { opacity: .35; pointer-events: none; }
 body.selecting .sel-btn { color: var(--accent); }
 body.selecting #view .row[data-id], body.selecting #view .card[data-id] { cursor: pointer; -webkit-user-select: none; user-select: none; }
-/* 줄: 앨범아트 앞에 동그란 체크 */
-body.selecting #view .row[data-id] .t::before {
-  content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%;
-  box-shadow: inset 0 0 0 2px var(--text-3); transition: background-color .12s, box-shadow .12s;
+/* 줄: # 왼쪽의 네모 체크박스. 평소엔 줄에 마우스를 올렸을 때만, 선택 중엔 늘 보인다 */
+.ck {
+  display: block; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; cursor: pointer;
+  background: transparent; box-shadow: inset 0 0 0 2px var(--text-3); transition: background-color .12s, box-shadow .12s;
 }
+.ck:hover { box-shadow: inset 0 0 0 2px var(--text-2); }
+.tl-head .ck, .row .ck { transform: translateX(10px); } /* # 쪽으로 살짝 붙인다 */
+.row .ck { visibility: hidden; }
+.row:hover .ck, body.selecting #view .row .ck { visibility: visible; }
+.ck.off, .row .ck.off { visibility: hidden; pointer-events: none; }
+.tl-head .ck.some { box-shadow: none; background: var(--accent) linear-gradient(var(--accent-ink), var(--accent-ink)) center / 10px 2.5px no-repeat; }
+@media (min-width: 821px) { .sel-btn.m-only { display: none; } } /* PC는 목록 머리의 체크박스로 고른다 */
 body.selecting #view .row.picked { background: var(--accent-soft); }
-body.selecting #view .row.picked .t::before, body.selecting #view .card.picked::after {
+body.selecting #view .row.picked .ck, .tl-head .ck.on, body.selecting #view .card.picked::after {
   box-shadow: none; background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1206' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12.5 4 4L18 8'/%3E%3C/svg%3E") center / 15px no-repeat;
 }
 body.selecting #view .row .more, body.selecting #view .card .fab { visibility: hidden; }
