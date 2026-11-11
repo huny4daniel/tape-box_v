@@ -252,6 +252,9 @@ class Api:
     def ls_review(self, server, token, ids, action):
         return self._ls.review(server, token, ids, action)
 
+    def ls_sync(self, server, token):
+        return self._ls.sync_rejected(server, token)
+
     def ls_results(self, kind):
         return self._ls.results(kind)
 

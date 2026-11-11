@@ -352,10 +352,12 @@ class Run:
         self.results_path = os.path.join(home, "results.jsonl")
         self.last = last_results(self.results_path)
         self.model = None
+        self.recent = {}
 
     def record(self, **o):
         o["at"] = int(time.time())
         o["mode"] = self.mode
+        self.recent = o  # 방금 남긴 기록 (폰에 보낼 때 확인 필요인지 알린다)
         with open(self.results_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(o, ensure_ascii=False) + "\n")
 
@@ -592,7 +594,7 @@ def run_phone(home, server, token, model_name, language):
             # 전에 만든 적 있으면 다시 만들지 않고 그대로 보낸다 (폰 앱 데이터가 지워진 경우)
             if os.path.exists(saved):
                 with open(saved, encoding="utf-8") as f:
-                    phone.json("PUT", "/api/lyrics/" + q(tid), {"lrc": f.read(), "source": "aligned"})
+                    phone.json("PUT", "/api/lyrics/" + q(tid), {"lrc": f.read(), "source": "aligned", "check": prev == "check"})
                 emit(type="track", status="restored", **info)
                 if prev not in MADE:
                     run.record(status="restored", reason="", **info)
@@ -606,9 +608,10 @@ def run_phone(home, server, token, model_name, language):
                 continue
             audio = os.path.join(home, "tmp", "current.audio")
             phone.download("/api/stream/" + q(tid), audio)
+            run.recent = {}
             lrc = run.make(audio, plain, info)
             if lrc is not None:
-                phone.json("PUT", "/api/lyrics/" + q(tid), {"lrc": lrc, "source": "aligned"})
+                phone.json("PUT", "/api/lyrics/" + q(tid), {"lrc": lrc, "source": "aligned", "check": run.recent.get("status") == "check"})
         except ConnectionError as e:
             emit(type="fatal", text=str(e))
             return 2

@@ -23,6 +23,7 @@
     pair: (pin) => req("POST", "/api/pair", { pin }),
     library: () => req("GET", "/api/library"),
     lyrics: (id) => req("GET", "/api/lyrics/" + encodeURIComponent(id)),
+    revertLyrics: (id) => req("DELETE", "/api/lyrics/" + encodeURIComponent(id) + "?reject=1"),
     setTrack: (id, patch) => req("POST", "/api/track/" + encodeURIComponent(id), patch),
     reportPlay: (id, listenedMs, counted) => req("POST", "/api/plays", { id, listenedMs: Math.round(listenedMs), counted: !!counted }),
     playlists: () => req("GET", "/api/playlists"),

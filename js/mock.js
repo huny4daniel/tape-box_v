@@ -63,8 +63,9 @@
       const t = byId.get(id); const lines = [];
       if (rnd() < 0.15) return ok({ synced: null, plain: null });
       for (let ms = 12000, i = 0; ms < t.duration - 8000; ms += 3500 + Math.floor(rnd() * 2500), i++) lines.push([ms, i % 9 === 8 ? "" : title() + " " + title()]);
-      return ok({ synced: lines, plain: null });
+      return ok({ synced: lines, plain: null, source: rnd() < 0.5 ? "aligned" : "file", check: rnd() < 0.5 });
     },
+    revertLyrics: () => ok({ ok: true }),
     setTrack: (id, patch) => { Object.assign(byId.get(id), patch); return ok({ ok: true }); },
     reportPlay: (id, ms, counted) => { const t = byId.get(id); t.listenedMs += ms; if (counted) { t.plays++; t.lastPlayed = Date.now(); t.firstPlayed = t.firstPlayed || Date.now(); } return ok({ ok: true }); },
     playlists: () => ok(playlists),

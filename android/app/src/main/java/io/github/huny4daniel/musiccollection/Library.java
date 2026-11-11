@@ -188,6 +188,7 @@ public class Library {
             res.put("synced", a);
             res.put("plain", JSONObject.NULL);
             res.put("source", made[1] == null ? "made" : made[1]);
+            res.put("check", "1".equals(made[2])); // 확인 필요 곡: 가사 화면에 되돌리기 버튼이 보인다
         } else if (t != null) {
             Id3Lyrics.Result r = Id3Lyrics.read(ctx, t.uri());
             if (r.synced != null && !r.synced.isEmpty()) {

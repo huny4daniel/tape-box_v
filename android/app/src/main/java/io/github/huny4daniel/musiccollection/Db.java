@@ -28,7 +28,7 @@ public class Db extends SQLiteOpenHelper {
         public String memo;
     }
 
-    public Db(Context c) { super(c, "collection.db", null, 2); }
+    public Db(Context c) { super(c, "collection.db", null, 3); }
 
     @Override public void onConfigure(SQLiteDatabase db) { db.enableWriteAheadLogging(); }
 
@@ -40,15 +40,23 @@ public class Db extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE playlists (id TEXT PRIMARY KEY, name TEXT, descr TEXT, created INTEGER, updated INTEGER, items TEXT)");
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)");
         createLyrics(db);
+        createRejected(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int o, int n) {
         if (o < 2) createLyrics(db);
+        else if (o < 3) db.execSQL("ALTER TABLE lyrics ADD COLUMN chk INTEGER DEFAULT 0");
+        if (o < 3) createRejected(db);
     }
 
     /** PC가 음원에 맞춰 만들어 보낸 시간 가사(LRC). 파일 태그보다 먼저 쓴다 */
     private static void createLyrics(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE IF NOT EXISTS lyrics (key TEXT PRIMARY KEY, lrc TEXT NOT NULL, source TEXT, updated INTEGER)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS lyrics (key TEXT PRIMARY KEY, lrc TEXT NOT NULL, source TEXT, updated INTEGER, chk INTEGER DEFAULT 0)");
+    }
+
+    /** 듣다가 되돌린 곡. PC 생성기가 연결될 때 받아 가서 다시 만들거나 되살리지 않게 한다 */
+    private static void createRejected(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS lyrics_rejected (key TEXT PRIMARY KEY, at INTEGER)");
     }
 
     // ───── 곡 기록 ─────
@@ -174,21 +182,43 @@ public class Db extends SQLiteOpenHelper {
     }
 
     // ───── 만든 가사 ─────
-    /** [lrc, source] 또는 null */
+    /** [lrc, source, chk("1": PC 생성기가 확인 필요로 판정)] 또는 null */
     public synchronized String[] lyrics(String key) {
-        try (Cursor c = getReadableDatabase().rawQuery("SELECT lrc, source FROM lyrics WHERE key = ?", new String[]{key})) {
-            return c.moveToFirst() ? new String[]{c.getString(0), c.getString(1)} : null;
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT lrc, source, chk FROM lyrics WHERE key = ?", new String[]{key})) {
+            return c.moveToFirst() ? new String[]{c.getString(0), c.getString(1), c.getInt(2) == 1 ? "1" : "0"} : null;
         }
     }
 
-    public synchronized void setLyrics(String key, String lrc, String source) {
+    public synchronized void setLyrics(String key, String lrc, String source, boolean check) {
         ContentValues v = new ContentValues();
-        v.put("key", key); v.put("lrc", lrc); v.put("source", source); v.put("updated", System.currentTimeMillis());
-        getWritableDatabase().insertWithOnConflict("lyrics", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+        v.put("key", key); v.put("lrc", lrc); v.put("source", source); v.put("updated", System.currentTimeMillis()); v.put("chk", check ? 1 : 0);
+        SQLiteDatabase w = getWritableDatabase();
+        w.insertWithOnConflict("lyrics", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+        w.delete("lyrics_rejected", "key = ?", new String[]{key}); // PC가 다시 만들어 보냈으면 되돌림은 풀린다
     }
 
     public synchronized void clearLyrics() {
-        getWritableDatabase().delete("lyrics", null, null);
+        SQLiteDatabase w = getWritableDatabase();
+        w.delete("lyrics", null, null);
+        w.delete("lyrics_rejected", null, null);
+    }
+
+    /** 만든 가사를 지우고 되돌린 곡으로 남긴다 */
+    public synchronized void rejectLyrics(String key) {
+        SQLiteDatabase w = getWritableDatabase();
+        w.delete("lyrics", "key = ?", new String[]{key});
+        ContentValues v = new ContentValues();
+        v.put("key", key); v.put("at", System.currentTimeMillis());
+        w.insertWithOnConflict("lyrics_rejected", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    /** [{id, at(ms)}] */
+    public synchronized JSONArray rejectedLyrics() throws JSONException {
+        JSONArray out = new JSONArray();
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT key, at FROM lyrics_rejected", null)) {
+            while (c.moveToNext()) out.put(new JSONObject().put("id", c.getString(0)).put("at", c.getLong(1)));
+        }
+        return out;
     }
 
     public synchronized void deleteLyrics(String key) {

@@ -852,7 +852,7 @@
   let LS = null, lsTimer = 0, lsHtml = "", lsHeadHtml = "";
   let LSR = { tab: null, items: null, q: "", loading: false }; // 펼친 결과 목록
   function lsSlot() {
-    lsHtml = lsHeadHtml = ""; LSR.items = null; setTimeout(lsPoll);
+    lsHtml = lsHeadHtml = ""; LSR.items = null; setTimeout(() => { lsPoll(); lsSync().then((r) => { if (r && r.count) lsPoll(); }); });
     return `<div class="set-card" id="ls-card" hidden><div id="ls-main"></div><div id="ls-results"><div id="ls-results-head"></div><div id="ls-filter"></div><div id="ls-rows"></div></div></div>`;
   }
   window.addEventListener("pywebviewready", () => lsPoll());
@@ -942,10 +942,15 @@
     rejected: "되돌려서 원래 가사로 돌아간 곡이에요. 다음에 시작해도 다시 만들지 않아요. 「다시 만들기」를 누르면 다음 실행 때 다시 만들어요.",
     notfound: "만들었지만 폰 곡 목록에서 같은 곡을 찾지 못해 보내지 못한 곡이에요. 폰에 없는 곡이거나, PC 파일과 폰 파일의 제목·길이가 달라요.",
   };
+  // 폰의 가사 화면에서 되돌린 곡을 PC 결과 기록에 반영한다
+  function lsSync() {
+    const pw = PWA(); if (!pw || !pw.ls_sync) return Promise.resolve(null);
+    return lsToken().then((tok) => (tok ? pw.ls_sync(location.origin, tok) : null)).catch(() => null);
+  }
   function lsLoadList() {
     const pw = PWA(), tab = LSR.tab; if (!pw || !tab) return;
     LSR.loading = true;
-    pw.ls_results(tab).then((items) => { if (LSR.tab === tab) { LSR.items = items || []; renderLsRows(); } })
+    lsSync().then(() => pw.ls_results(tab)).then((items) => { if (LSR.tab === tab) { LSR.items = items || []; renderLsRows(); } })
       .catch(() => {}).then(() => { LSR.loading = false; });
   }
   function renderLsFilter() {
@@ -1003,7 +1008,7 @@
       if (act === "ls-revert-all" && !confirm(`확인 필요 곡 ${ids.length}곡의 만든 가사를 지우고 원래 가사로 되돌릴까요?\n되돌린 곡은 다시 만들지 않아요.`)) return;
       const action = act === "ls-keep" ? "keep" : act === "ls-retry" ? "retry" : "revert";
       el.disabled = true;
-      (action === "revert" ? lsToken() : Promise.resolve(""))
+      (action === "retry" ? Promise.resolve("") : lsToken()) // 괜찮음 표시도 폰의 되돌리기 버튼을 떼려고 폰에 알린다
         .then((tok) => pw.ls_review(location.origin, tok, ids, action))
         .then((res) => {
           if (res && res.ok) toast(action === "revert" ? `${U.num(res.count)}곡을 원래 가사로 되돌렸어요` : action === "retry" ? "다음에 시작하면 다시 만들어요" : "괜찮은 곡으로 옮겼어요");
@@ -1126,11 +1131,36 @@
     if (!t) { box.innerHTML = `<div class="lyrics plain"><p class="note">재생 중인 곡이 없어요</p></div>`; return; }
     box.innerHTML = `<div class="lyrics plain"><p class="note">가사를 불러오는 중…</p></div>`;
     box.dataset.lyr = t.id;
+    lyrRevertBtn(box, null);
     getLyrics(t.id).then((d) => {
       if (box.dataset.lyr !== t.id) return;
       box.innerHTML = lyricsHtml(d);
       box._lyr = { data: d, cur: -1 };
+      lyrRevertBtn(box, d && d.synced && d.check && d.source !== "file" ? t.id : null); // 확인 필요로 만든 싱크 가사일 때만
       syncLyrics(true);
+    });
+  }
+  // 확인 필요 싱크 가사 되돌리기 버튼: 가사 영역 밖 오른쪽 아래 (메모지 아래, PC 오른쪽 패널·옆 패널의 모서리)
+  function lyrRevertHost(box) { return box.closest(".np-memo:not(.panel-memo)") || box.closest("#panel") || box.closest(".np-side"); }
+  function lyrRevertBtn(box, id) {
+    const host = lyrRevertHost(box); if (!host) return;
+    const old = $(":scope > .lyr-revert", host); if (old) old.remove();
+    if (!id) return;
+    host.insertAdjacentHTML("beforeend", `<button class="lyr-revert" data-act="lyr-revert" data-id="${esc(id)}" title="확인 필요 싱크 가사 되돌리기" aria-label="확인 필요 싱크 가사 되돌리기"><i class="ic ic-undo"></i></button>`);
+  }
+  function revertLyricsModal(id) {
+    const t = L.byId.get(id); if (!t) return;
+    openModal(`<h3>싱크 가사를 되돌릴까요?</h3><p class="dim" style="margin:0">「${esc(t.title)}」의 만든 싱크 가사를 지우고 원래 가사로 돌려요. 이 곡은 다시 만들지 않아요.</p>
+      <div class="row-btns"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="lyr-revert-ok">되돌리기</button></div>`);
+    $("#lyr-revert-ok").addEventListener("click", (e) => {
+      e.currentTarget.disabled = true;
+      API.revertLyrics(id).then(() => {
+        closeModal();
+        lyrCache.delete(id);
+        $$("[data-lyr]").forEach((b) => { if (b.dataset.lyr === id) mountLyrics(b); });
+        toast("원래 가사로 되돌렸어요");
+        lsSync(); // PC 창이면 생성기 기록에도 바로 반영
+      }, (err) => { closeModal(); toast("되돌리지 못했어요: " + err.message); });
     });
   }
   function syncLyrics(force) {
@@ -1161,6 +1191,7 @@
   function renderPanel() {
     $("#app").classList.toggle("panel-open", panelOpen && !!P.current);
     $$(".panel-tabs [data-panel]").forEach((b) => b.classList.toggle("on", b.dataset.panel === panelTab));
+    const oldBtn = $("#panel > .lyr-revert"); if (oldBtn) oldBtn.remove();
     if (!panelOpen) return;
     const body = $("#panel-body");
     if (panelTab === "lyrics") {
@@ -1415,6 +1446,7 @@
   function renderNpSide() {
     if (fp.hidden) return;
     const body = $(".np-side-body", fp); if (!body) return;
+    const oldBtn = $(".np-side > .lyr-revert", fp); if (oldBtn) oldBtn.remove();
     npSide = "queue"; // 가사는 카세트 자리의 메모지로 본다 (PC·폰)
     $$(".np-tabs [data-v]", fp).forEach((b) => b.classList.toggle("on", b.dataset.v === npSide));
     if (npSide === "lyrics") { body.innerHTML = "<div data-lyr></div>"; mountLyrics($("[data-lyr]", body)); }
@@ -1657,6 +1689,7 @@
         }
         case "ls-pick": case "ls-install": case "ls-stop": case "ls-remove": case "ls-start": case "ls-tab": case "ls-revert": case "ls-keep": case "ls-retry": case "ls-revert-all": case "ls-reset": case "ls-source": case "ls-pick-music": case "ls-send": lsAct(act, a); return;
         case "lyr-retry": $$("[data-lyr]").forEach((b) => mountLyrics(b)); return;
+        case "lyr-revert": revertLyricsModal(a.dataset.id); return;
         case "server-toggle": { const on = !a.classList.contains("on"); try { window.NativeBridge.setServerEnabled(on); } catch (err) {} setTimeout(rerender, 400); return; }
         case "rescan": { toast("라이브러리를 다시 읽는 중…"); (window.NativeBridge ? Promise.resolve(window.NativeBridge.rescan()) : API.rescan()).then(() => setTimeout(reloadLibrary, 300)).catch((err) => toast("실패: " + err.message)); return; }
       }

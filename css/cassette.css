@@ -220,7 +220,7 @@
 .np-play:hover { transform: scale(1.05); }
 .np-play .ic { width: 28px; height: 28px; }
 
-.np-side { display: flex; flex-direction: column; min-height: 0; background: rgba(0,0,0,.3); border-radius: 14px; overflow: hidden; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.np-side { position: relative; display: flex; flex-direction: column; min-height: 0; background: rgba(0,0,0,.3); border-radius: 14px; overflow: hidden; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
 .np-tabs { display: flex; align-items: center; gap: 6px; padding: 14px 14px 8px; }
 .np-tabs button { height: 30px; padding: 0 14px; border-radius: 99px; font-size: 13px; font-weight: 700; color: var(--text-2); background: rgba(255,255,255,.07); }
 .np-tabs button.on { background: var(--text); color: var(--bg); }

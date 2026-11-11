@@ -165,13 +165,19 @@ public class WebServer extends NanoHTTPD {
                     String lrc = b.optString("lrc", "");
                     List<Id3Lyrics.Line> lines = Id3Lyrics.parseLrc(lrc);
                     if (lines == null || lines.isEmpty()) return json(Response.Status.BAD_REQUEST, "{\"error\":\"not lrc\"}");
-                    app.db.setLyrics(arg, lrc, b.optString("source", "made"));
+                    app.db.setLyrics(arg, lrc, b.optString("source", "made"), b.optBoolean("check", false));
                     app.library.forgetLyrics(arg);
                     return ok();
                 }
-                if (m == Method.DELETE) { app.db.deleteLyrics(arg); app.library.forgetLyrics(arg); return ok(); }
+                if (m == Method.DELETE) { // reject=1: 듣다가 되돌린 곡 (PC 생성기가 다시 만들지 않게 남긴다)
+                    if ("1".equals(first(s, "reject"))) app.db.rejectLyrics(arg); else app.db.deleteLyrics(arg);
+                    app.library.forgetLyrics(arg);
+                    return ok();
+                }
                 return json(Response.Status.OK, app.library.lyrics(arg).toString());
             }
+            case "lyrics-rejected": // 폰에서 되돌린 곡 (PC 생성기가 받아 가 기록에 반영한다)
+                return json(Response.Status.OK, new JSONObject().put("items", app.db.rejectedLyrics()).toString());
             case "token": { // PC 프로그램의 가사 생성기가 쓸 토큰. 짝 맺은 창의 토큰을 그대로 돌려줘 토큰이 늘지 않게 한다
                 if (m != Method.POST) break;
                 String tok = isLocal(s) ? null : s.getCookies().read(COOKIE);

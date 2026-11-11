@@ -207,7 +207,8 @@ class LyricSync:
             if not os.path.exists(path):
                 continue
             s = sent.get(o["id"])
-            if s and s.get("at", 0) >= int(os.path.getmtime(path)):
+            # 보낸 뒤 바뀌지 않았고 폰의 확인 필요 표시도 맞으면 건너뛴다 (표시가 없던 때 보낸 확인 필요 곡은 한 번 더 보낸다)
+            if s and s.get("at", 0) >= int(os.path.getmtime(path)) and s.get("check", False) == (o.get("status") == "check"):
                 continue
             out.append(o)
         return out
@@ -257,6 +258,7 @@ class LyricSync:
         if action == "keep":
             items = [o for o in items if o.get("status") == "check"]
             self._record(items, "kept")
+            self._uncheck_on_phone(server, token, items)
             return {"ok": True, "count": len(items)}
         if action == "retry":
             items = [o for o in items if o.get("status") == "rejected"]
@@ -285,6 +287,55 @@ class LyricSync:
         if failed:
             return {"ok": False, "error": f"{failed}곡은 폰에 연결하지 못해 되돌리지 못했어요"}
         return {"ok": True, "count": len(done)}
+
+    def sync_rejected(self, server, token):
+        """폰의 가사 화면에서 되돌린 곡을 받아 와 결과 기록에 반영한다: PC 사본을 지우고 되돌린 곡으로 표시해
+        다시 만들거나 되살리거나 보내지 않게. 폰에 닿지 않으면 다음 기회에 한다"""
+        if not self.home or not token:
+            return {"ok": False}
+        try:
+            items = PhoneAPI(server, token).call("GET", "/api/lyrics-rejected", timeout=10).get("items") or []
+            at = {o["id"]: (o.get("at") or 0) / 1000 for o in items}
+        except Exception:
+            return {"ok": False}
+        if not at:
+            return {"ok": True, "count": 0}
+        with self.lock:
+            last, sent = self._last(), self._json("sent.json", {})
+            done = []
+            for o in last.values():
+                pid = self._phone_id(o, sent)
+                # 되돌린 뒤에 다시 만든 곡(「다시 만들기」)은 새 결과가 우선이다
+                if o.get("status") in MADE and pid in at and at[pid] >= o.get("at", 0):
+                    try:
+                        os.remove(self._made(o["id"]))
+                    except FileNotFoundError:
+                        pass
+                    sent.pop(o["id"], None)
+                    done.append(o)
+            if done:
+                self._write_json("sent.json", sent)
+                self._record(done, "rejected")
+        return {"ok": True, "count": len(done)}
+
+    def _uncheck_on_phone(self, server, token, items):
+        """괜찮다고 표시한 곡은 폰 가사 화면에서도 확인 필요 표시(되돌리기 버튼)를 뗀다. 폰에 닿지 않으면 그대로 둔다"""
+        if not token:
+            return
+        phone, sent = PhoneAPI(server, token), self._json("sent.json", {})
+        try:
+            for o in items:
+                pid, path = self._phone_id(o, sent), self._made(o["id"])
+                if not pid or not os.path.exists(path):
+                    continue
+                with open(path, encoding="utf-8") as f:
+                    phone.call("PUT", "/api/lyrics/" + urllib.parse.quote(pid, safe=""), {"lrc": f.read(), "source": "aligned", "check": False})
+                if o["id"] in sent:
+                    sent[o["id"]]["check"] = False
+        except Exception:
+            pass  # 못 뗀 곡은 다음 「폰에 보내기」 때 고쳐진다
+        finally:
+            self._write_json("sent.json", sent)
 
     def reset(self, server, token):
         """결과 기록과 PC 사본을 모두 지우고, 폰에 저장된 만든 싱크 가사도 지운다"""
@@ -492,6 +543,8 @@ class LyricSync:
 
     # ───── 생성 ─────
     def start(self, server, token):
+        if self.phase == "idle":
+            self.sync_rejected(server, token)  # 폰에서 되돌린 곡은 다시 만들거나 되살리지 않게 먼저 반영
         with self.lock:
             if self.phase != "idle":
                 return {"ok": False, "error": "이미 작업 중이에요"}
@@ -594,6 +647,8 @@ class LyricSync:
 
     # ───── 폰에 보내기 (PC 폴더 방식으로 만든 가사) ─────
     def start_send(self, server, token):
+        if self.phase == "idle":
+            self.sync_rejected(server, token)  # 폰에서 되돌린 곡은 다시 보내지 않게 먼저 반영
         with self.lock:
             if self.phase != "idle":
                 return {"ok": False, "error": "이미 작업 중이에요"}
@@ -618,6 +673,12 @@ class LyricSync:
                 raise RuntimeError(REFUSED if e.code == 401 else f"폰에서 곡 목록을 받지 못했어요 (응답 {e.code})")
             except Exception:
                 raise RuntimeError("폰에 연결할 수 없어요. 폰 앱을 켜고 다시 눌러 주세요.")
+            # 확인 필요 표시를 모르는 예전 폰 앱이면 표시를 보냈다고 적지 않는다 (앱을 업데이트한 뒤 다시 보내면 채워진다)
+            try:
+                phone.call("GET", "/api/lyrics-rejected", timeout=10)
+                flags = True
+            except Exception:
+                flags = False
             ids, by_meta, by_title = set(), {}, {}
             for t in lib.get("tracks", []):
                 ids.add(t["id"])
@@ -656,7 +717,8 @@ class LyricSync:
                 with open(self._made(o["id"]), encoding="utf-8") as f:
                     lrc = f.read()
                 try:
-                    phone.call("PUT", "/api/lyrics/" + urllib.parse.quote(pid, safe=""), {"lrc": lrc, "source": "aligned"})
+                    phone.call("PUT", "/api/lyrics/" + urllib.parse.quote(pid, safe=""),
+                               {"lrc": lrc, "source": "aligned", "check": o.get("status") == "check"})
                 except urllib.error.HTTPError as e:
                     if e.code == 401:
                         raise RuntimeError(REFUSED)
@@ -667,6 +729,8 @@ class LyricSync:
                 except Exception:
                     raise RuntimeError("보내는 중에 폰 연결이 끊겼어요. 다시 누르면 남은 곡만 보내요.")
                 sent[o["id"]] = {"phone": pid, "at": int(time.time())}
+                if flags:
+                    sent[o["id"]]["check"] = o.get("status") == "check"
                 notfound.discard(o["id"])
                 with self.lock:
                     self.send["i"], self.send["sent"] = i, self.send["sent"] + 1
