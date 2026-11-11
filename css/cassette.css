@@ -310,6 +310,7 @@
   color: rgba(31,45,77,.5); transition: color .3s; width: fit-content; max-width: 100%;
 }
 .np-memo.paper .lyrics .ln.past { color: rgba(31,45,77,.75); }
+.np-memo.paper .lyrics .ja { font-family: "Yomogi", var(--font); font-size: .8em; }
 .np-memo.paper .lyrics .ln.cur { color: #16213d; }
 .np-memo.paper .lyrics .ln.cur > span { background: linear-gradient(transparent 36%, rgba(255,214,70,.6) 36% 90%, transparent 90%); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .np-memo.paper .lyrics .ln:hover { color: #16213d; }

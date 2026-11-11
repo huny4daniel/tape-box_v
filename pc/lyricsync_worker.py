@@ -26,6 +26,9 @@ import warnings
 
 GAP_BLANK = 4.0      # 줄 사이가 이만큼(초) 비면 간주 표시용 빈 줄을 넣는다
 STACK_GAP = 0.2      # 앞 줄과 시작이 이보다 가까우면 한 시점에 몰린 것으로 본다
+FIX_RUN = 3          # 연달아 몰린 줄이 이 이하면 앞뒤 줄 사이로 나눠 넣는다
+FIX_STEP = (0.8, 6.0)  # 나눠 넣을 때 한 줄 간격(초)이 이 범위를 벗어나면 고치지 않는다
+FIX_RATIO = 0.1      # 고치지 못한 줄이 이 비율을 넘으면 확인 필요
 WAIT_PHONE = 30 * 60  # 폰 연결이 끊겼을 때 다시 붙기를 기다리는 최대 시간(초)
 AUDIO_EXT = (".mp3", ".flac", ".m4a", ".mp4", ".aac", ".ogg", ".oga", ".opus", ".wav")
 MADE = ("done", "check", "kept", "restored")  # 만든 가사가 있는 상태
@@ -134,6 +137,68 @@ def fmt(t):
     return f"[{m:02d}:{t - m * 60:05.2f}]"
 
 
+def song_language(text, default):
+    """가사 글자로 곡 언어를 정한다. 한글이 조금이라도 비중 있게 섞이면 기본 언어(한국어)로 둔다"""
+    hangul = sum(1 for c in text if "가" <= c <= "힣")
+    kana = sum(1 for c in text if "぀" <= c <= "ヿ")
+    han = sum(1 for c in text if "一" <= c <= "鿿")
+    latin = sum(1 for c in text if c.isascii() and c.isalpha()) / 3  # 영문은 대략 세 글자가 한 음절
+    total = hangul + kana + han + latin
+    if not total or hangul / total >= 0.2:
+        return default
+    if kana and (kana + han) >= latin:
+        return "ja"
+    if han > latin:
+        return "zh"
+    return "en" if latin else default
+
+
+def settle(lines):
+    """[시작, 끝, 글] 목록에서 앞 줄과 한 시점에 몰린 줄을 고친다.
+    몇 줄만 몰렸고 다음 줄까지 간격이 자연스러우면 그 사이에 고르게 나눠 넣고,
+    고칠 수 없는 줄 수를 함께 돌려준다"""
+    n = len(lines)
+    bad, i = 0, 1
+    while i < n:
+        if lines[i][0] - lines[i - 1][0] >= STACK_GAP:
+            i += 1
+            continue
+        j = i
+        while j < n and lines[j][0] - lines[j - 1][0] < STACK_GAP:
+            j += 1
+        run = j - i
+        a = lines[i - 1][0]
+        if j < n and run <= FIX_RUN:
+            step = (lines[j][0] - a) / (run + 1)
+            if FIX_STEP[0] <= step <= FIX_STEP[1]:
+                lines[i - 1][1] = min(lines[i - 1][1], a + step)
+                for k in range(run):
+                    st = a + step * (k + 1)
+                    lines[i + k][0], lines[i + k][1] = st, st + step
+                i = j
+                continue
+        bad += run
+        i = j
+    return bad
+
+
+def build_lrc(lines):
+    out = []
+    for i, (st, en, text) in enumerate(lines):
+        out.append(fmt(st) + text)
+        nxt = lines[i + 1][0] if i + 1 < len(lines) else None
+        if nxt is None or nxt - en >= GAP_BLANK:
+            out.append(fmt(en + 0.3))
+    return "\n".join(out)
+
+
+def judge(lines, issues):
+    bad = settle(lines)
+    if bad and bad / len(lines) > FIX_RATIO or bad > FIX_RUN:
+        issues.append(f"{bad}줄이 앞 줄과 같은 시점에 몰림")
+    return build_lrc(lines), sorted(set(issues))
+
+
 def align(model, audio, text, language):
     lines = [l.strip() for l in text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if l.strip()]
     if not lines:
@@ -148,21 +213,40 @@ def align(model, audio, text, language):
 
     issues = []
     for w in caught:
-        if "failed to align" in str(w.message):
-            issues.append("정렬하지 못한 줄이 있음")
+        m = str(w.message)
+        # 줄 몇 개가 비어 버린 경고는 아래에서 몰린 줄로 따로 다룬다. 뒤쪽을 통째로 놓친 경우만 문제로 본다
+        if m.startswith("Failed to align the last") or m.startswith("Alignment aborted"):
+            issues.append("뒷부분을 정렬하지 못함")
     if len(segs) != len(lines):
         issues.append(f"줄 수가 달라짐 ({len(lines)} → {len(segs)})")
-    stacked = sum(1 for a, b in zip(segs, segs[1:]) if b.start - a.start < STACK_GAP)
-    if stacked:
-        issues.append(f"{stacked}줄이 앞 줄과 같은 시점에 몰림")
+    return judge([[s.start, s.end, s.text.strip()] for s in segs], issues)
 
-    out = []
-    for i, s in enumerate(segs):
-        out.append(fmt(s.start) + s.text.strip())
-        nxt = segs[i + 1].start if i + 1 < len(segs) else None
-        if nxt is None or nxt - s.end >= GAP_BLANK:
-            out.append(fmt(s.end + 0.3))
-    return "\n".join(out), sorted(set(issues))
+
+def rejudge(path):
+    """예전에 만든 LRC를 지금 기준으로 다시 판정한다. (LRC, 남은 문제) — 읽을 수 없으면 None"""
+    import re
+    rows = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for ln in f:
+                m = re.match(r"\[(\d+):(\d+(?:\.\d+)?)\](.*)", ln.strip())
+                if m:
+                    rows.append((int(m.group(1)) * 60 + float(m.group(2)), m.group(3).strip()))
+    except OSError:
+        return None
+    lines = []
+    for k, (st, text) in enumerate(rows):
+        if not text:
+            continue
+        en = rows[k + 1][0] if k + 1 < len(rows) else st
+        if k + 1 < len(rows) and not rows[k + 1][1]:
+            en -= 0.3  # 빈 줄은 줄 끝 + 0.3초에 넣었다
+        lines.append([st, max(st, en), text])
+    if not lines:
+        return None
+    if lines[-1][0] - lines[0][0] < STACK_GAP * len(lines) / 2:
+        return build_lrc(lines), ["정렬 결과가 없음"]
+    return judge(lines, [])
 
 
 def load_model(home, name):
@@ -238,7 +322,9 @@ class Run:
             emit(type="ready", device=device)
         emit(type="working", **info)
         started = time.time()
-        lrc, issues = align(self.model, audio, plain, self.language)
+        lang = song_language(plain, self.language)
+        info = dict(info, lang=lang)
+        lrc, issues = align(self.model, audio, plain, lang)
         if lrc is None:
             emit(type="track", status="fail", reason=", ".join(issues), **info)
             self.record(status="fail", reason=", ".join(issues), **info)
@@ -248,6 +334,36 @@ class Run:
         status = "check" if issues else "done"
         emit(type="track", status=status, reason=", ".join(issues), secs=round(time.time() - started, 1), **info)
         self.record(status=status, reason=", ".join(issues), **info)
+        return lrc
+
+
+    def recheck(self, audio, plain, info):
+        """만든 곡(만듦·확인 필요)을 다시 본다. 다른 언어 곡을 한국어로 정렬했던 것이면 다시 정렬하고,
+        확인 필요 곡은 만든 LRC를 지금 기준으로 다시 판정해 고칠 수 있으면 고친다.
+        직접 지키기로 정한 곡은 여기 오지 않는다"""
+        p = self.last.get(info["id"]) or {}
+        lang = song_language(plain, self.language)
+        if p.get("lang", self.language) != lang:
+            return self.make(audio, plain, info)
+        if p.get("status") != "check":
+            emit(type="track", status="skip", reason="이미 만든 곡", **info)
+            return None
+        path = made_path(self.home, info["id"])
+        got = rejudge(path)
+        if got is None:
+            return self.make(audio, plain, info)
+        lrc, issues = got
+        reason = ", ".join(issues)
+        info = dict(info, lang=lang)
+        if issues:
+            emit(type="track", status="skip", reason="이미 만든 곡", **info)
+            if reason != p.get("reason"):
+                self.record(status="check", reason=reason, **info)
+            return None
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(lrc)
+        emit(type="track", status="done", reason="", **info)
+        self.record(status="done", reason="", **info)
         return lrc
 
 
@@ -287,6 +403,8 @@ def run_folder(home, folder, model_name, language):
                 run.skip("파일에 이미 시간 가사가 있음", info)
             elif prev == "rejected":  # 결과가 틀려서 되돌린 곡은 다시 만들지 않는다
                 emit(type="track", status="skip", reason="되돌린 곡", **info)
+            elif prev in ("check", "done") and os.path.exists(made_path(home, key)) and meta["plain"].strip():
+                run.recheck(path, meta["plain"], info)
             elif prev in MADE and os.path.exists(made_path(home, key)):
                 emit(type="track", status="skip", reason="이미 만든 곡", **info)
             elif not meta["plain"].strip():

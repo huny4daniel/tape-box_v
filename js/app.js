@@ -4,6 +4,8 @@
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const esc = U.esc;
+  // 가사 속 일본어(가나·한자)는 따로 감싸 메모지 손글씨에서 일본어용 글꼴을 쓰게 한다
+  const lyrText = (t) => esc(t).replace(/[぀-ヿ㐀-鿿ｦ-ﾟ]+/g, '<span class="ja">$&</span>');
 
   // ───────── 라이브러리 ─────────
   const L = { tracks: [], byId: new Map(), albums: new Map(), artists: new Map(), playlists: [], loaded: false };
@@ -1109,8 +1111,8 @@
   function lyricsHtml(d) {
     if (d && d.failed) return `<div class="lyrics plain"><p class="note" style="font-size:16px;margin-top:20px">폰과 연결이 끊겨 가사를 불러오지 못했어요.</p><p class="note"><button class="btn ghost" data-act="lyr-retry">다시 불러오기</button></p></div>`;
     if (!d || (!d.synced && !d.plain)) return `<div class="lyrics plain"><p class="note" style="font-size:16px;margin-top:20px">이 곡에는 가사가 없어요.</p></div>`;
-    if (d.synced) return `<div class="lyrics">${d.synced.map(([ms, text], i) => `<p class="ln${text.trim() ? "" : " blank"}" data-ms="${ms}" data-k="${i}"><span>${esc(text) || "♪"}</span></p>`).join("")}</div>`;
-    return `<div class="lyrics plain">${d.plain.split(/\r?\n/).map((l) => `<p class="ln">${esc(l) || "&nbsp;"}</p>`).join("")}</div>`;
+    if (d.synced) return `<div class="lyrics">${d.synced.map(([ms, text], i) => `<p class="ln${text.trim() ? "" : " blank"}" data-ms="${ms}" data-k="${i}"><span>${lyrText(text) || "♪"}</span></p>`).join("")}</div>`;
+    return `<div class="lyrics plain">${d.plain.split(/\r?\n/).map((l) => `<p class="ln">${lyrText(l) || "&nbsp;"}</p>`).join("")}</div>`;
   }
   function mountLyrics(box) {
     const t = P.current;
@@ -1882,6 +1884,11 @@
     P.on("played", onPlayed);
     P.on("listened", ({ id, ms }) => { const t = L.byId.get(id); if (t) t.listenedMs += ms; });
     P.on("error", () => toast("이 곡을 재생하지 못했어요"));
+    let linkLost = false;
+    P.on("link", ({ ok }) => {
+      if (!ok && !linkLost) { linkLost = true; toast("폰 연결이 끊겼어요. 다시 연결되면 이어서 재생해요"); }
+      else if (ok && linkLost) { linkLost = false; toast("폰과 다시 연결됐어요"); }
+    });
     P.on("native", (m) => { if (m.type === "library") reloadLibrary(); if (m.type === "resume") reloadLibrary().catch(() => {}); });
     renderSidebar();
     P.resume();

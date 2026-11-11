@@ -81,22 +81,63 @@
       a.addEventListener("timeupdate", () => { this.pos = a.currentTime * 1000; this._tickListen(); this.emit("time", { pos: this.pos, dur: this.dur }); });
       a.addEventListener("durationchange", () => { if (isFinite(a.duration)) this.dur = a.duration * 1000; this._state(); });
       a.addEventListener("ended", () => { this._tickListen(); this.next(true); });
-      a.addEventListener("error", () => { this.emit("error", { id: this.currentId }); setTimeout(() => this.next(true), 800); });
+      a.addEventListener("error", () => this._recover());
+      a.addEventListener("playing", () => { this._fails = 0; this.emit("link", { ok: true }); });
+      // 폰 화면이 꺼져 와이파이가 잠들면 오류 없이 멈춰 버릴 때가 있다. 재생 중인데 시간이 안 흐르면 다시 잇는다
+      this._want = false; this._fails = 0; this._lastT = -1; this._still = 0;
+      setInterval(() => {
+        if (!this._want || a.paused || a.ended || !a.src) { this._still = 0; return; }
+        if (a.currentTime !== this._lastT) { this._lastT = a.currentTime; this._still = 0; return; }
+        if (++this._still >= 8) { this._still = 0; this._recover(); }
+      }, 1000);
       this._mediaSession();
+    }
+    // 끊긴 곡은 건너뛰지 않고 폰이 다시 응답할 때까지 기다렸다가 끊긴 자리부터 잇는다.
+    // 폰은 응답하는데 이 곡만 계속 실패하면 그때 다음 곡으로 넘어간다
+    async _recover() {
+      const id = this.currentId; if (!id || this._recovering) return;
+      this._recovering = true;
+      const pos = this.pos, want = this._want;
+      try {
+        for (let tries = 0; this.currentId === id; tries++) {
+          let up = false;
+          try { await Promise.race([API.status(), new Promise((_, no) => setTimeout(no, 5000))]); up = true; } catch (e) {}
+          if (this.currentId !== id) return;
+          if (up) {
+            if (++this._fails > 3) { this._fails = 0; this.emit("error", { id }); this.next(true); return; }
+            this.emit("link", { ok: true });
+            this._reopen(pos, want);
+            return;
+          }
+          if (tries === 0) this.emit("link", { ok: false });
+          await new Promise((r) => setTimeout(r, Math.min(10000, 2000 + tries * 1000)));
+        }
+      } finally { this._recovering = false; }
+    }
+    _reopen(pos, autoplay) {
+      const a = this.audio;
+      a.src = API.streamUrl(this.currentId) + "?r=" + Date.now();
+      if (pos) a.addEventListener("loadedmetadata", () => { a.currentTime = pos / 1000; }, { once: true });
+      if (autoplay) a.play().catch(() => {});
     }
     _lisReset() { if (this._lis) this._lis.last = performance.now(); }
     _open(pos, autoplay) {
       const id = this.currentId; const t = id && this.getTrack(id);
       if (!t) return;
-      this.dur = t.duration || 0; this.pos = pos;
+      this.dur = t.duration || 0; this.pos = pos; this._want = !!autoplay; this._fails = 0;
       this.audio.src = API.streamUrl(id);
       if (pos) this.audio.addEventListener("loadedmetadata", () => { this.audio.currentTime = pos / 1000; }, { once: true });
       if (autoplay) this.audio.play().catch(() => { this.playing = false; this._state(); });
       this._meta(t);
       this._state();
     }
-    play() { if (!this.audio.src && this.currentId) return this._open(this.pos, true); this.audio.play().catch(() => {}); }
-    pause() { this.audio.pause(); }
+    play() {
+      if (!this.audio.src && this.currentId) return this._open(this.pos, true);
+      this._want = true;
+      if (this.audio.error) return this._recover();
+      this.audio.play().catch(() => {});
+    }
+    pause() { this._want = false; this.audio.pause(); }
     toggle() { this.audio.paused ? this.play() : this.pause(); }
     seek(ms) { this.pos = ms; if (this.audio.src) this.audio.currentTime = ms / 1000; this.emit("time", { pos: ms, dur: this.dur }); }
     get volume() { return this.audio.volume; }
@@ -205,6 +246,7 @@
       this.eng.on("played", (p) => this.emit("played", p));
       this.eng.on("listened", (p) => this.emit("listened", p));
       this.eng.on("error", (p) => this.emit("error", p));
+      this.eng.on("link", (p) => this.emit("link", p));
       this.eng.on("native", (p) => this.emit("native", p));
       this._restore();
     }
