@@ -187,6 +187,8 @@
   function goBack() {
     const r = route();
     if (r.name === "home") return;
+    // 폰: 나의 테이프·앨범·아티스트는 아래 「라이브러리」 탭에서 들어가므로 라이브러리를 거쳐 홈으로
+    if (isMobile() && ["playlists", "albums", "artists"].includes(r.name)) { location.hash = "#/library"; return; }
     if (NAV_ROOTS.includes(r.name)) { location.hash = "#/"; return; }
     if (navStack.length >= 2) { navStack.pop(); navBack = true; location.hash = "#" + navStack[navStack.length - 1]; return; }
     location.hash = "#" + (NAV_PARENT[r.name] || "/");
