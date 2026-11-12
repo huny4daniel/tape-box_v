@@ -8,7 +8,6 @@
   - `js/api.js`: 폰 내장 서버 API
   - `js/player.js`: 대기열·셔플. 소리는 폰에서는 Media3(NativeEngine), PC에서는 `<audio>`(WebEngine)가 낸다
   - `js/app.js`: 화면 전체 (홈, 나의 컬렉션, 앨범·아티스트, 소장품 카드, 재생목록, 검색, 가사·대기열)
-  - `js/mock.js`: 폰 없이 화면을 확인할 때 쓰는 가짜 라이브러리 (`mock.html`)
 - `pc/tape_player.py`: PC 프로그램 「테이프 박스」 (pywebview). 같은 Wi-Fi에서 폰을 찾아 폰이 내려주는 화면을 창으로 띄운다
   - `pc/lyricsync.py`: 싱크 가사 생성기의 설치·실행 관리. 고른 폴더 아래 `TapeBox-LyricSync`에 uv로 Python·PyTorch·모델을 따로 받는다 (exe에는 넣지 않음)
   - `pc/lyricsync_worker.py`: 그 환경에서 도는 생성기. 시간 정보 없는 가사의 곡을 보컬 분리(demucs) 후 Whisper(stable-ts)로 줄마다 시각을 맞춰 LRC로 만들어 `made/`에 남긴다
@@ -29,16 +28,14 @@
 
 ## 개발
 
-- 화면만 볼 때: 저장소 루트에서 `python -m http.server` 후 `http://localhost:8000/mock.html` (파일을 직접 열어도 된다)
-- 폰 앱: `cd android && ./gradlew assembleDebug` → `android/app/build/outputs/apk/debug/app-debug.apk`
-  - 빌드할 때 루트의 웹 파일이 `assets/www`로 복사된다 (`mock.html`, `mock.js` 제외)
-
-- PC 프로그램: `pip install -r pc/requirements.txt` 후 `python pc/tape_player.py`
 - 폰·PC 함께 디버깅: 폰을 USB로 연결하고 `dev.bat` 더블클릭 → PC 브라우저에 실제 폰 데이터로 화면이 뜬다
   - 폰에 디버그 앱이 없거나 `android/`의 소스(Java 등)가 마지막 설치 이후 바뀌었으면 시작할 때 알아서 빌드·설치한다 (앱 데이터 유지)
   - 화면 파일을 저장하면 PC 브라우저와 폰 앱 화면이 함께 새로고침된다 (css만 바뀌면 스타일만 갈아 끼움)
   - `pc/devserver.py`(포트 8655)가 화면 파일은 저장소에서, `/api/`는 `adb forward`로 폰에서 가져온다. 폰 앱은 `adb reverse`로 같은 화면 파일을 읽는다 (개발 서버가 없으면 APK 사본)
   - 검사: PC 화면은 브라우저 F12, 폰 화면은 크롬 `chrome://inspect`
+- 폰 앱: `cd android && ./gradlew assembleDebug` → `android/app/build/outputs/apk/debug/app-debug.apk`
+  - 빌드할 때 루트의 웹 파일(`index.html`, `css/`, `js/`)이 `assets/www`로 복사된다
+- PC 프로그램: `pip install -r pc/requirements.txt` 후 `python pc/tape_player.py`
 
 ## PC에서 접속
 

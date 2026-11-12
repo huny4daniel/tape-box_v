@@ -148,18 +148,17 @@
 /* 홈의 테이프 줄: 옆으로 넘겨 가며 고른다 */
 .tape-row {
   display: grid; grid-auto-flow: column; grid-auto-columns: 180px; gap: 14px;
-  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding: 0 28px;
-  margin: 0 -28px; padding: 8px 28px 18px; /* 그림자·들어올림이 잘리지 않게 */
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding: 0 var(--page-x);
+  margin: 0 calc(-1 * var(--page-x)); padding: 8px var(--page-x) 18px; /* 화면 끝까지 펼쳐 그림자·들어올림이 잘리지 않게 */
   scrollbar-width: none;
 }
 .tape-row::-webkit-scrollbar { display: none; }
 .tape-row > * { scroll-snap-align: start; }
 
 /* 재생목록 페이지 위쪽의 테이프 */
-.hero-tape { width: 340px; flex: none; order: 2; margin-left: auto; margin-right: clamp(0px, 5vw, 80px); } /* 제목 오른쪽, 끝에서 조금 안쪽 */
+.hero-tape { width: 340px; flex: none; order: 2; margin-left: auto; } /* 제목 오른쪽 (끝 여백은 화면 공통 여백으로) */
 .hero:has(.hero-tape) .hero-text { flex: 1; } /* 제목이 남는 폭을 다 써서 글자 중간에서 끊기지 않게 */
 .hero-tape .tape { filter: drop-shadow(0 18px 34px rgba(0,0,0,.55)); }
-.hero:has(.hero-tape) .hero-text { padding-left: clamp(0px, 4vw, 64px); } /* 제목을 왼쪽 끝에서 조금 안쪽으로 */
 
 /* 아래 사다리꼴: 투명한 플라스틱 */
 .tape-foot {
@@ -220,6 +219,10 @@
 .np-meta span a:hover { color: var(--text); text-decoration: underline; }
 .np-meta .icon-btn { width: 44px; height: 44px; }
 .np-meta .icon-btn .ic { width: 26px; height: 26px; }
+/* 재생 화면 음량 (PC만): 제목·가수 줄 오른쪽 끝 */
+.np-vol { flex: none; display: flex; align-items: center; gap: 8px; width: 150px; color: var(--text-2); }
+.np-vol .ic { width: 20px; height: 20px; flex: none; }
+@media (max-width: 820px) { .np-vol { display: none; } }
 .np-no { margin-top: 8px; font-size: 12px; color: var(--text-3); font-weight: 700; font-variant-numeric: tabular-nums; }
 .np-seek { margin-top: 18px; }
 .np-seek .times { display: flex; justify-content: space-between; color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 6px; }
@@ -238,8 +241,6 @@
 .np-tabs { display: flex; align-items: center; gap: 6px; padding: 14px 14px 8px; }
 .np-tabs button { height: 30px; padding: 0 14px; border-radius: 99px; font-size: 13px; font-weight: 700; color: var(--text-2); background: rgba(255,255,255,.07); }
 .np-tabs button.on { background: var(--text); color: var(--bg); }
-.np-card-link { margin-left: auto; font-size: 12.5px; font-weight: 700; color: var(--text-3); }
-.np-card-link:hover { color: var(--text); }
 .np-side-body { flex: 1; min-height: 0; overflow-y: auto; }
 .np-side-body .queue { padding: 0 8px 20px; }
 .np-side-body .q-row:hover { background: rgba(255,255,255,.08); }
@@ -277,7 +278,7 @@
 
 /* 테이프 고르기 */
 .np-main:has(.np-eject) { grid-template-columns: minmax(0, 1fr); }
-.np-eject { justify-content: center; overflow: visible; }
+.np-eject { justify-content: center; padding-bottom: 32vh; overflow: visible; } /* 한가운데보다 살짝 위로 */
 .np-shelf-search {
   align-self: center; width: min(520px, 100%); display: flex; align-items: center; gap: 10px; height: 44px; margin: 0 0 18px; padding: 0 14px;
   border-radius: 22px; background: rgba(255,255,255,.08); color: var(--text-2);
@@ -286,14 +287,15 @@
 .np-shelf-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 15px; }
 .np-shelf-search input::placeholder { color: var(--text-3); }
 .np-shelf-tape[hidden] { display: none; }
-/* 선반의 상자: 누르면 그 안의 테이프로. 상자 안에서는 위에 「상자 밖으로」 */
-.np-shelf-box { align-self: center; }
-.np-shelf-box .tbox { pointer-events: none; } /* 누름은 감싼 칸이 받는다 */
-.np-shelf-crumb { display: flex; justify-content: center; min-height: 0; }
-.np-shelf-crumb:empty { display: none; }
-.np-shelf-back { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 14px 0 10px; border-radius: 99px; background: rgba(255,255,255,.08); color: var(--text-2); font: inherit; font-size: 13px; font-weight: 700; }
-.np-shelf-back:hover { color: var(--text); background: rgba(255,255,255,.14); }
-.np-shelf-back .ic { width: 16px; height: 16px; }
+/* 꽂을 테이프 고르기: 윗줄은 상자, 아랫줄은 테이프. 상자를 누르면 고르고(들어 올림), 다시 누르면 내려놓는다 */
+.np-shelf.np-box-row { padding: 6px calc(50% - 125px) 4px; gap: 20px; } /* 상자 폭(250px)에 맞춰 가운데 */
+.np-box-row[hidden] { display: none; }
+.np-shelf-box { flex: none; width: 250px; cursor: pointer; scroll-snap-align: center; border-radius: 8px; transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s; opacity: .72; }
+.np-shelf-box .tbox { pointer-events: none; }
+.np-shelf-box:hover { opacity: 1; }
+.np-shelf-box.on { opacity: 1; transform: translateY(-8px); }
+.np-shelf-box.on::after { content: ""; display: block; height: 3px; width: 40%; margin: 8px auto 0; border-radius: 2px; background: var(--accent); }
+.np-shelf-empty { margin: 30px auto; color: var(--text-3); font-size: 14px; text-align: center; white-space: normal; }
 .np-eject-hint { margin: 0 0 6px; text-align: center; font-family: "Nanum Pen Script", var(--font); font-size: 26px; color: var(--text-2); }
 .np-shelf {
   align-self: stretch; display: flex; gap: 22px; overflow-x: auto; overscroll-behavior-x: contain;
@@ -403,7 +405,7 @@
   @keyframes tape-in { from { transform: translateY(-60%) rotate(14deg); } 55% { transform: translateY(-3%) rotate(6deg); } 80% { transform: rotate(-.6deg); } }
 
   /* 꺼낸 뒤 빈 데크: 위에 테이프 선반, 아래에 테이프를 꽂는 두 축 */
-  .np-eject { justify-content: flex-start; padding-top: 9vh; overflow: visible; } /* 선반은 화면 위쪽에 */
+  .np-eject { justify-content: flex-start; padding-top: 4vh; padding-bottom: 0; overflow: visible; } /* 선반은 화면 위쪽에 */
   .np-eject::before { display: none; }
   .np-shelf-search {
     width: auto; align-self: stretch; display: flex; align-items: center; gap: 10px; height: 44px; margin: 0 0 18px; padding: 0 14px;
@@ -420,6 +422,8 @@
     padding: 14px calc(50% - min(37vw, 160px)) 26px;
   }
   .np-shelf::-webkit-scrollbar { display: none; }
+  .np-shelf.np-box-row { padding: 6px calc(50% - 80px) 4px; gap: 14px; }
+  .np-shelf-box { width: 160px; }
   .np-shelf-tape { flex: none; width: min(74vw, 320px); scroll-snap-align: center; cursor: pointer; touch-action: pan-x; } /* 옆으로는 선반 넘기기, 아래로는 끌어 꽂기 */
   .tape-ghost { position: fixed; z-index: 10; margin: 0; pointer-events: none; transform-origin: 92% 100%; filter: drop-shadow(0 20px 28px rgba(0,0,0,.6)); }
   .np-shelf-tape .tape { box-shadow: 0 12px 20px rgba(0,0,0,.5); transition: transform .15s; } /* filter 그림자는 스크롤 중 매번 다시 그려 끊긴다 */
@@ -548,48 +552,54 @@
 .tbox { position: relative; aspect-ratio: 1.6; container-type: inline-size; cursor: pointer; outline: none; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
 .tape-grid .tbox:hover, .tbox:focus-visible { transform: translateY(-4px); }
 .tbox:focus-visible .tbox-front { box-shadow: 0 0 0 2px var(--accent), 0 8px 14px rgba(0,0,0,.45); }
-/* 상자 안쪽 뒷벽 */
+/* 상자 안쪽 뒷벽 (상자는 낮게: 몸통이 아래쪽 40%쯤) */
 .tbox-back {
-  position: absolute; left: 7cqw; right: 7cqw; top: 13cqw; height: 14cqw; border-radius: .8cqw .8cqw 0 0;
+  position: absolute; left: 7cqw; right: 7cqw; top: 30cqw; height: 8cqw; border-radius: .8cqw .8cqw 0 0;
   background: linear-gradient(180deg, #8a6038, #5e3f22);
   box-shadow: inset 0 .5cqw 0 rgba(255,225,180,.18);
 }
-/* 꽂힌 테이프들의 등 */
-.tbox-spines {
-  position: absolute; z-index: 1; left: 11cqw; right: 11cqw; top: 4cqw; height: 24cqw;
-  display: flex; align-items: flex-end; justify-content: center; gap: .9cqw;
+/* 세로로 세워 꽂은 테이프들: 아랫부분은 상자 앞면에 가려지고 윗부분(제목 앞부분)만 보인다 */
+.tbox-tapes {
+  position: absolute; z-index: 1; left: 12cqw; right: 12cqw; top: 0; height: 44cqw;
+  display: flex; align-items: flex-end; justify-content: center; gap: .8cqw;
 }
-.tbox-spine {
-  position: relative; flex: 0 1 8.4cqw; height: calc(15cqw + var(--lift, 0) * 1.5cqw); border-radius: .7cqw .7cqw 0 0;
-  background: linear-gradient(90deg, #2c2926 0 14%, hsl(var(--h) 40% 46%) 14% 86%, #2c2926 86%);
-  box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.16), 0 0 0 .2cqw rgba(0,0,0,.35);
-  transform: rotate(-1.6deg); transition: transform .22s cubic-bezier(.2,.8,.2,1);
+.tbox-tape {
+  position: relative; flex: 0 0 13.6cqw; height: calc(24cqw + var(--lift, 0) * .9cqw); border-radius: 1.1cqw 1.1cqw .4cqw .4cqw;
+  background: linear-gradient(90deg, #26221f, #3b3631 50%, #26221f);
+  box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.12), 0 0 0 .2cqw rgba(0,0,0,.4), 0 .6cqw 1cqw rgba(0,0,0,.35);
+  transform: rotate(-1.4deg); transition: transform .22s cubic-bezier(.2,.8,.2,1);
 }
-.tbox-spine:nth-child(even) { transform: rotate(1.3deg); }
-.tbox-spine:nth-child(3n) { transform: rotate(-.4deg); }
-.tbox-spine::before { /* 등에 붙인 종이 라벨 */
-  content: ""; position: absolute; left: 22%; right: 22%; top: 1.8cqw; height: 6cqw; border-radius: .3cqw;
-  background: repeating-linear-gradient(transparent 0 1.2cqw, rgba(70,55,35,.25) 1.2cqw 1.4cqw), rgba(238,229,210,.92);
+.tbox-tape:nth-child(even) { transform: rotate(1.2deg); }
+.tbox-tape:nth-child(3n) { transform: rotate(-.3deg); }
+.tbox-tape::before { /* 테이프 앞면의 색 띠 */
+  content: ""; position: absolute; inset: 1.3cqw 1.5cqw 2.6cqw; border-radius: .7cqw; background: hsl(var(--h) 36% 42%);
+  box-shadow: inset 0 0 0 .25cqw rgba(0,0,0,.18);
 }
-.tape-grid .tbox:hover .tbox-spine { transform: translateY(-1.6cqw) rotate(0); }
-.tape-grid .tbox:hover .tbox-spine:nth-child(2n) { transition-delay: .03s; }
-.tbox-spine.up { transform: translateY(-3.4cqw) rotate(0) !important; box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.16), 0 0 2.4cqw hsl(var(--h) 70% 60% / .55); }
+.tbox-tape span { /* 마스킹 테이프에 세로로 적은 제목 (앞부분만 보인다) */
+  position: absolute; top: 2.1cqw; left: 50%; transform: translateX(-50%); max-height: calc(100% - 4.6cqw); overflow: hidden;
+  writing-mode: vertical-rl; white-space: nowrap; padding: 1cqw .45cqw;
+  background: repeating-linear-gradient(0deg, rgba(120,100,60,.06) 0 1px, transparent 1px 3px), rgba(236,226,198,.95);
+  font-family: "Nanum Pen Script", var(--font); font-size: 5.4cqw; line-height: 1; color: #1f2d4d;
+}
+.tape-grid .tbox:hover .tbox-tape { transform: translateY(-1.6cqw) rotate(0); }
+.tape-grid .tbox:hover .tbox-tape:nth-child(2n) { transition-delay: .03s; }
+.tbox-tape.up { transform: translateY(-3.4cqw) rotate(0) !important; box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.12), 0 0 2.4cqw hsl(var(--h) 70% 60% / .55); }
 /* 바깥으로 젖혀진 날개 */
-.tbox-flap { position: absolute; z-index: 0; top: 17cqw; width: 14cqw; height: 10cqw; background: linear-gradient(180deg, #d6aa72, #b88651); }
+.tbox-flap { position: absolute; z-index: 0; top: 31cqw; width: 14cqw; height: 7cqw; background: linear-gradient(180deg, #d6aa72, #b88651); }
 .tbox-flap.l { left: 0; clip-path: polygon(0 0, 56% 0, 100% 100%, 43% 100%); }
 .tbox-flap.r { right: 0; clip-path: polygon(44% 0, 100% 0, 57% 100%, 0 100%); }
 /* 앞면: 크라프트 골판지 */
 .tbox-front {
-  position: absolute; z-index: 2; left: 6cqw; right: 6cqw; top: 26cqw; bottom: 0; border-radius: .4cqw .4cqw 1.2cqw 1.2cqw;
+  position: absolute; z-index: 2; left: 6cqw; right: 6cqw; top: 36cqw; bottom: 0; border-radius: .4cqw .4cqw 1.2cqw 1.2cqw;
   background:
     repeating-linear-gradient(90deg, rgba(90,55,20,.05) 0 .5cqw, transparent .5cqw 1.6cqw),
     linear-gradient(180deg, rgba(255,235,200,.22), rgba(255,235,200,0) 14%),
     linear-gradient(180deg, #c99a63, #ab7b48);
   box-shadow: inset 0 .45cqw 0 rgba(255,236,205,.35), inset 0 -.6cqw 1.4cqw rgba(70,40,15,.3), 0 8px 14px rgba(0,0,0,.45);
 }
-.tbox-hold { position: absolute; top: 3.4cqw; left: 50%; width: 15cqw; height: 3.2cqw; transform: translateX(-50%); border-radius: 2cqw; background: #3a2817; box-shadow: inset 0 .5cqw .6cqw rgba(0,0,0,.6), 0 .25cqw 0 rgba(255,236,205,.3); }
+.tbox-hold { position: absolute; top: 2.4cqw; left: 50%; width: 15cqw; height: 3.2cqw; transform: translateX(-50%); border-radius: 2cqw; background: #3a2817; box-shadow: inset 0 .5cqw .6cqw rgba(0,0,0,.6), 0 .25cqw 0 rgba(255,236,205,.3); }
 .tbox-label {
-  position: absolute; top: 10cqw; left: 50%; max-width: 76%; padding: .6cqw 4.2cqw .1cqw;
+  position: absolute; top: 7cqw; left: 50%; max-width: 70%; padding: .6cqw 4.2cqw .1cqw;
   transform: translateX(-50%) rotate(var(--tilt, 0deg)); filter: drop-shadow(0 .3cqw .35cqw rgba(0,0,0,.3));
 }
 .tbox-label::before {
@@ -599,14 +609,14 @@
 }
 .tbox-label span {
   position: relative; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-family: "Nanum Pen Script", var(--font); font-size: 8.6cqw; line-height: 1.12; color: #1f2d4d;
+  font-family: "Nanum Pen Script", var(--font); font-size: 7.6cqw; line-height: 1.12; color: #1f2d4d;
 }
 .tbox-stamp {
   position: absolute; right: 4cqw; bottom: 3cqw; padding: .25cqw 1.3cqw; transform: rotate(-4deg);
   border: .35cqw solid rgba(128,42,30,.62); border-radius: .5cqw; color: rgba(128,42,30,.72);
   font-family: "Courier New", ui-monospace, monospace; font-size: 3.1cqw; font-weight: 700; letter-spacing: .12em;
 }
-.tbox.empty .tbox-back { background: linear-gradient(180deg, #7a5532, #4f341b); }
+.tbox.is-empty .tbox-back { /* 빈 상자 ('empty'는 화면 공통 빈 안내 스타일과 겹쳐서 쓰지 않는다) */ background: linear-gradient(180deg, #7a5532, #4f341b); }
 .hero-tape .tbox { filter: drop-shadow(0 18px 34px rgba(0,0,0,.45)); }
 
 /* 나의 테이프: 상자 줄과 테이프 줄 제목 */
@@ -633,5 +643,19 @@ body.tape-dragging, body.tape-dragging * { cursor: grabbing !important; user-sel
 body.tape-dragging .tbox[data-box] .tbox-front { box-shadow: 0 0 0 2px rgba(232,178,90,.35), 0 8px 14px rgba(0,0,0,.45); }
 .tbox.drop-over { transform: translateY(-6px) scale(1.04); }
 body.tape-dragging .tbox.drop-over .tbox-front { box-shadow: 0 0 0 3px var(--accent), 0 14px 24px rgba(0,0,0,.55); }
-.tbox.drop-over .tbox-spine { transform: translateY(-2.4cqw) rotate(0); }
+.tbox.drop-over .tbox-tape { transform: translateY(-2.4cqw) rotate(0); }
 .tape-grid .tape[data-pl] { -webkit-touch-callout: none; }
+
+/* 상자 화면: 테이프를 끄는 동안 위쪽 상자 그림이 점선 사각형으로 바뀌고, 거기 놓으면 상자 밖으로 */
+[data-unbox] { position: relative; }
+body.tape-dragging [data-unbox] > .tbox { visibility: hidden; }
+body.tape-dragging [data-unbox]::after {
+  content: "여기에 놓으면 상자 밖으로"; position: absolute; inset: 0; display: grid; place-items: center; padding: 12px; text-align: center;
+  border: 2.5px dashed rgba(255,255,255,.35); border-radius: 12px; background: rgba(255,255,255,.03);
+  color: var(--text-2); font-weight: 700; font-size: 15px; transition: border-color .12s, background .12s, color .12s;
+}
+body.tape-dragging [data-unbox].drop-over::after { border-color: var(--accent); background: rgba(232,178,90,.08); color: var(--text); }
+
+/* 테이프 고르기 팝업 위 검색창 */
+.pick-search { width: 100%; flex: none; margin-bottom: 12px; }
+.pick-empty { grid-column: 1 / -1; text-align: center; padding: 28px 0; margin: 0; }

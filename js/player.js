@@ -1,7 +1,6 @@
 // 재생기. 대기열·셔플은 여기서 관리하고, 실제 소리는 엔진이 낸다.
 //  - WebEngine: PC 브라우저 (폰에서 파일을 실시간으로 받아 <audio>로 재생)
 //  - NativeEngine: 폰 앱 안 (Media3 재생 서비스, 화면이 꺼져도 다음 곡으로 넘어감)
-//  - SimEngine: dev.html용 가짜 재생 (소리 없이 시간만 흐름)
 (function () {
   "use strict";
 
@@ -158,30 +157,6 @@
     }
   }
 
-  class SimEngine extends QueueEngine {
-    constructor(getTrack) { super(getTrack); this.volume = 1; setInterval(() => this._tick(), 250); this._last = performance.now(); }
-    _open(pos, autoplay) {
-      const t = this.getTrack(this.currentId); if (!t) return;
-      this.dur = t.duration; this.pos = pos; this.playing = !!autoplay; this._last = performance.now();
-      if (this._lis) this._lis.last = this._last;
-      this._state();
-    }
-    _tick() {
-      const now = performance.now();
-      if (this.playing) {
-        this.pos += now - this._last;
-        this._tickListen();
-        if (this.pos >= this.dur) { this.pos = this.dur; this.next(true); }
-        this.emit("time", { pos: this.pos, dur: this.dur });
-      }
-      this._last = now;
-    }
-    play() { if (this.currentId) { this.playing = true; this._last = performance.now(); if (this._lis) this._lis.last = this._last; this._state(); } }
-    pause() { this._tickListen(); this.playing = false; this._state(); }
-    toggle() { this.playing ? this.pause() : this.play(); }
-    seek(ms) { this.pos = ms; this.emit("time", { pos: ms, dur: this.dur }); }
-  }
-
   // ───── 폰 앱 엔진: 실제 재생은 안드로이드 쪽 Media3가 한다 ─────
   class NativeEngine extends Emitter {
     constructor() {
@@ -238,7 +213,7 @@
       super();
       this.getTrack = getTrack;
       this.native = !!window.NativeBridge;
-      const E = this.native ? NativeEngine : (window.MOCK_API ? SimEngine : WebEngine);
+      const E = this.native ? NativeEngine : WebEngine;
       this.eng = new E(getTrack);
       this.shuffle = false; this.original = null; this.context = null;
       this.eng.on("state", (s) => { this._adoptShuffle(); this.emit("state", s); this._save(); });

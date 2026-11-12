@@ -22,7 +22,6 @@ val syncWebAssets = tasks.register<Sync>("syncWebAssets") {
     val root = rootProject.projectDir.parentFile
     from(root) {
         include("index.html", "css/**", "js/**")
-        exclude("js/mock.js")
     }
     into(webAssetsDir.map { it.dir("www") })
 }

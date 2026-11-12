@@ -1,4 +1,4 @@
-// 폰의 내장 서버와 이야기하는 층. mock.html에서는 js/mock.js가 window.MOCK_API로 갈아끼운다.
+// 폰의 내장 서버와 이야기하는 층.
 (function () {
   "use strict";
 
@@ -43,6 +43,6 @@
     streamUrl: (id) => "/api/stream/" + encodeURIComponent(id),
   };
 
-  window.API = Object.assign({}, real, window.MOCK_API || {});
+  window.API = Object.assign({}, real);
   window.API.Unauthorized = Unauthorized;
 })();

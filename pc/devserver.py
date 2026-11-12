@@ -212,7 +212,7 @@ class Handler(SimpleHTTPRequestHandler):
             with open(os.path.join(ROOT, "index.html"), "rb") as f:
                 return self._send(f.read(), "text/html; charset=utf-8")
         # 화면 파일만 내준다 (저장소의 다른 파일은 숨김)
-        if not (path.startswith("/css/") or path.startswith("/js/")) or path == "/js/mock.js":
+        if not (path.startswith("/css/") or path.startswith("/js/")):
             return self.send_error(404)
         return super().do_GET()
 

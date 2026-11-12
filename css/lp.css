@@ -14,6 +14,8 @@
 }
 .lp-row::-webkit-scrollbar { display: none; }
 .lp-row > .lp { scroll-snap-align: start; }
+/* PC 마우스: 앨범 줄도 테이프 줄처럼 스냅 없이 부드럽게 (cassette.css의 같은 규칙은 이 파일이 뒤에 읽혀 덮였다) */
+@media (hover: hover) and (pointer: fine) { .lp-row { scroll-snap-type: none; } }
 
 .lp-stage { position: relative; width: 86%; aspect-ratio: 1; }
 /* 선반: 옆 칸과 이어져 한 줄의 나무 선반처럼 */
