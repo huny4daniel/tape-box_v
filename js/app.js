@@ -80,7 +80,7 @@
       ? `<span class="no pl-row-handle" data-handle title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span>`
       : `<span class="no">${first}</span>`;
     const tail = mode === "edit"
-      ? `<button class="icon-btn" data-act="pl-remove" title="이 재생목록에서 빼기"><i class="ic ic-x"></i></button>`
+      ? `<button class="icon-btn" data-act="pl-remove" title="이 테이프에서 빼기"><i class="ic ic-x"></i></button>`
       : `<button class="icon-btn more" data-act="more" title="더 보기"><i class="ic ic-more"></i></button>`;
     return `<div class="row${now ? " now" + (P.playing ? "" : " paused") : ""}" data-id="${esc(t.id)}" data-i="${i}">
       <span class="ck${mode === "edit" ? " off" : ""}"></span>${lead}
@@ -172,14 +172,35 @@
     return { name: name || "home", arg: decodeURIComponent(arg), hash: h };
   }
   const pages = {};
+  // 뒤로 버튼: 사이드바(폰은 아래 탭) 메뉴로 여는 첫 화면들이 기준점. 그 안에서 들어간 길을 되짚어 결국 그 화면으로,
+  // 그 화면에서 한 번 더 누르면 홈으로. 홈에는 뒤로 버튼이 없다. 주소로 바로 들어왔으면 그 화면이 속한 첫 화면으로
+  const NAV_ROOTS = ["home", "search", "collection", "playlists", "albums", "artists", "library", "settings"];
+  const NAV_PARENT = { album: "/albums", artist: "/artists", "artist-albums": "/artists", playlist: "/playlists", liked: "/playlists", box: "/playlists", track: "/collection", year: "/", genre: "/search" };
+  let navStack = [], navBack = false;
+  function trackNav(r) {
+    if (NAV_ROOTS.includes(r.name)) { navStack = [r.hash]; navBack = false; return; }
+    if (navBack) { navBack = false; return; }
+    const i = navStack.lastIndexOf(r.hash);
+    if (i >= 0) navStack = navStack.slice(0, i + 1); // 브라우저 뒤로 등으로 지나온 화면에 다시 온 경우
+    else navStack.push(r.hash);
+  }
+  function goBack() {
+    const r = route();
+    if (r.name === "home") return;
+    if (NAV_ROOTS.includes(r.name)) { location.hash = "#/"; return; }
+    if (navStack.length >= 2) { navStack.pop(); navBack = true; location.hash = "#" + navStack[navStack.length - 1]; return; }
+    location.hash = "#" + (NAV_PARENT[r.name] || "/");
+  }
   function render(keepScroll) {
     if (!L.loaded) return;
     const r = route();
     if (curRoute && curRoute !== r.hash) { scrolls[curRoute] = view.scrollTop; if (SEL.on) selEnd(); plEdit = boxEdit = false; }
     const ae = document.activeElement, focusQ = ae && ae.dataset && ae.dataset.act === "list-q" ? ae.dataset.k : null;
     const st = keepScroll ? view.scrollTop : scrolls[r.hash] || 0;
+    if (r.hash !== curRoute) trackNav(r);
     curRoute = r.hash;
     closeMenu();
+    $("#topbar .topbar-nav").style.visibility = r.name === "home" ? "hidden" : ""; // 홈에는 뒤로 버튼이 없다
     const fn = pages[r.name] || pages.home;
     setTint(null);
     $("#topbar-title").textContent = "";
@@ -586,7 +607,7 @@
     $("#topbar-title").textContent = "아끼는 곡";
     setTint("350 40% 30%");
     return `<div class="page">
-      <div class="hero">${heroTape(likedPl(), "liked")}<div class="hero-text"><div class="hero-kicker">재생목록</div><h1>아끼는 곡</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${U.fmtLong(T.reduce((s, t) => s + t.duration, 0))}</span></div></div></div>
+      <div class="hero">${heroTape(likedPl(), "liked")}<div class="hero-text"><div class="hero-kicker">테이프</div><h1>아끼는 곡</h1><div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${U.fmtLong(T.reduce((s, t) => s + t.duration, 0))}</span></div></div></div>
       <div class="actions"><button class="play-fab" data-act="list-play" data-list="liked"><i class="ic ic-play"></i></button><button class="icon-btn" data-act="list-shuffle" data-list="liked" title="셔플 재생"><i class="ic ic-shuffle"></i></button>${T.length ? selBtn("liked") : ""}</div>
       ${T.length ? trackList("liked", T, "index") : `<div class="empty"><b>아직 아끼는 곡이 없어요</b>곡 옆의 하트를 눌러 담아 보세요.</div>`}
     </div>`;
@@ -623,6 +644,11 @@
     if (k === "name") return list.slice().sort((a, b) => ko.compare(a.name, b.name));
     if (k === "made") return list.slice().sort((a, b) => (b.created || 0) - (a.created || 0)); // 아끼는 곡(만든 날 없음)은 맨 뒤
     return isBox ? list.slice().sort((a, b) => (played[key(b)] || 0) - (played[key(a)] || 0) || (b.updated || 0) - (a.updated || 0)) : list; // 테이프는 sortedTapes()가 이미 최근 들은 순
+  }
+  // 상자를 최근에 들은 순으로 (상자 안 테이프 중 가장 최근에 들은 때, 같으면 원래 순서)
+  function boxesByRecent(list) {
+    const played = tapePlayedMap(), at = (b) => Math.max(played["box:" + b.id] || 0, ...b.items.map((id) => played[id] || 0));
+    return list.slice().sort((a, b) => at(b) - at(a));
   }
   function sortedTapes() {
     const played = tapePlayedMap();
@@ -738,7 +764,7 @@
       </div>
       <div class="memo-box"><h3>이 곡에 남기는 메모</h3>
         <textarea data-act="memo" data-id="${esc(t.id)}" placeholder="이 노래를 처음 들은 곳, 떠오르는 사람, 그때의 계절…">${esc(t.memo || "")}</textarea>
-        <div class="hint"><span>${inLists.length ? "담긴 재생목록: " + inLists.map((p) => `<a href="#/playlist/${encodeURIComponent(p.id)}" style="color:var(--text-2)">${esc(p.name)}</a>`).join(", ") : ""}</span><span id="memo-state"></span></div>
+        <div class="hint"><span>${inLists.length ? "담긴 테이프: " + inLists.map((p) => `<a href="#/playlist/${encodeURIComponent(p.id)}" style="color:var(--text-2)">${esc(p.name)}</a>`).join(", ") : ""}</span><span id="memo-state"></span></div>
       </div>
       <div class="lyr-box"><h3>가사</h3><pre id="track-lyrics" class="dimmer">불러오는 중…</pre></div>
       ${albumT.length > 1 ? section("테이프 박스 속 같은 앨범 곡", t.album, trackList("track-album", albumT, "album")) : ""}
@@ -761,11 +787,11 @@
     if (!p) return notFound();
     const T = p.items.map((i) => L.byId.get(i)).filter(Boolean);
     $("#topbar-title").textContent = p.name;
-    topMore("pl-more", "재생목록 메뉴");
+    topMore("pl-more", "테이프 메뉴");
     if (T[0]) tintFromArt(T[0]); else setTint("30 10% 22%");
     return `<div class="page">
       <div class="hero">${heroTape(p, "playlist")}<div class="hero-text">
-        <div class="hero-kicker">재생목록${boxOf(p.id) ? ` · <a href="${boxHref(boxOf(p.id))}" class="kicker-box"><i class="ic ic-box"></i>${esc(boxOf(p.id).name)}</a>` : ""}</div><h1 class="${p.name.length > 20 ? "long" : ""}">${esc(p.name)}</h1>
+        <div class="hero-kicker">테이프${boxOf(p.id) ? ` · <a href="${boxHref(boxOf(p.id))}" class="kicker-box"><i class="ic ic-box"></i>${esc(boxOf(p.id).name)}</a>` : ""}</div><h1 class="${p.name.length > 20 ? "long" : ""}">${esc(p.name)}</h1>
         ${p.desc ? `<p class="hero-desc">${esc(p.desc)}</p>` : ""}
         <div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${U.fmtLong(T.reduce((s, t) => s + t.duration, 0))}</span>${p.created ? `<span class="sep"></span><span>${U.fmtDate(p.created)}에 만듦</span>` : ""}</div>
       </div></div>
@@ -775,7 +801,7 @@
         ${T.length && !plEdit ? selBtn("playlist") : ""}
       </div>
       ${T.length ? editBar("pl-edit", plEdit, true) : ""}
-      ${T.length ? trackList("playlist", T, plEdit ? "edit" : "index", editTool("pl-edit", plEdit)) : `<div class="empty" style="padding:24px"><b>아직 비어 있어요</b>아래 「곡 추가하기」로 담거나, 곡 메뉴의 「재생목록에 추가」를 써 보세요.</div>`}
+      ${T.length ? trackList("playlist", T, plEdit ? "edit" : "index", editTool("pl-edit", plEdit)) : `<div class="empty" style="padding:24px"><b>아직 비어 있어요</b>아래 「곡 추가하기」로 담거나, 곡 메뉴의 「테이프에 담기」를 써 보세요.</div>`}
       ${plEdit || !T.length ? `<div class="tracklist"><button class="row add-row" data-act="pl-add-open"><span class="ck off"></span><span class="no"><i class="ic ic-plus"></i></span><span class="t"><b>곡 추가하기</b></span></button></div>` : ""}
     </div>`;
   };
@@ -943,7 +969,7 @@
     $("#topbar-title").textContent = "라이브러리";
     const tapes = sortedTapes(), albums = sortedAlbums(), artists = sortedArtists();
     return `<div class="page">
-      <div class="section-head" style="margin-top:4px"><h2 style="font-size:26px">라이브러리</h2><button class="icon-btn" data-act="new-playlist" title="새 재생목록"><i class="ic ic-plus"></i></button></div>
+      <div class="section-head" style="margin-top:4px"><h2 style="font-size:26px">라이브러리</h2><button class="icon-btn" data-act="new-playlist" title="새 테이프"><i class="ic ic-plus"></i></button></div>
       ${section("나의 테이프", `${U.num(tapes.length)}개`, `<div class="tape-row" data-hscroll>${tapes.slice(0, ROW_MAX).map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`, "#/playlists")}
       ${section("앨범", `${U.num(albums.length)}장`, `<div class="lp-row" data-hscroll>${albums.slice(0, ROW_MAX).map((a) => lpAlbum(a)).join("")}</div>`, "#/albums")}
       ${section("아티스트", `${U.num(artists.length)}명`, `<div class="shelf scroll artist-row" data-hscroll>${artists.slice(0, ROW_MAX).map(artistCard).join("")}</div>`, "#/artists")}
@@ -953,7 +979,7 @@
   pages.playlists = () => {
     $("#topbar-title").textContent = "나의 테이프";
     return `<div class="page">
-      <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">나의 테이프</h2><p>재생목록 ${L.playlists.length + 1}개${L.boxes.length ? ` · 상자 ${L.boxes.length}개` : ""}</p></div></div>
+      <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">나의 테이프</h2><p>테이프 ${L.playlists.length + 1}개${L.boxes.length ? ` · 상자 ${L.boxes.length}개` : ""}</p></div></div>
       <div class="section-head grid-head"><div><h2>상자</h2><p id="box-sub"></p></div><div class="head-tools"><button class="btn head-new" data-act="new-box"><i class="ic ic-box"></i>새 상자</button>${headSearch("boxes")}${tapeSortSel("boxes")}</div></div>
       <div id="box-grid"></div>
       <div class="section-head grid-head"><div><h2>테이프</h2><p id="tape-sub"></p></div><div class="head-tools"><button class="btn head-new" data-act="new-playlist"><i class="ic ic-plus"></i>새 테이프</button>${headSearch("playlists")}${tapeSortSel("playlists")}</div></div>
@@ -1037,7 +1063,7 @@
     return `<div class="hero-tape">${cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), attrs: `data-act="pl-tape-play" data-list="${listName}" data-plid="${esc(pl.id)}" title="이 테이프 재생"` })}</div>`;
   }
   // 사이드바: 작은 카세트 + 오른쪽에 재생목록 이름
-  const plItem = (pl) => `<a class="side-pl side-tape" href="${tapeHref(pl)}">${cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), noHeart: true, attrs: `data-plid="${esc(pl.id)}"` })}<div><b>${esc(pl.name)}</b><small>재생목록 · ${pl.items.length}곡</small></div></a>`;
+  const plItem = (pl) => `<a class="side-pl side-tape" href="${tapeHref(pl)}">${cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), noHeart: true, attrs: `data-plid="${esc(pl.id)}"` })}<div><b>${esc(pl.name)}</b><small>테이프 · ${pl.items.length}곡</small></div></a>`;
   // 사이드바 상자: 누르면 사이드바 안에서 그 상자의 테이프로 (화면은 그대로)
   const sideBoxItem = (b) => `<div class="side-pl side-box" role="button" tabindex="0" data-act="side-box" data-bx="${esc(b.id)}" title="「${esc(b.name)}」 상자 열기">${tbox(b)}<div><b>${esc(b.name)}</b><small>상자 · 테이프 ${boxTapes(b).length}개</small></div></div>`;
   let sideBox = null; // 사이드바에서 열어 본 상자 (null이면 맨 바깥: 상자들 + 상자 밖 테이프)
@@ -1056,7 +1082,7 @@
     } else {
       head.innerHTML = `<span>라이브러리</span>`;
       const boxed = new Set(); L.boxes.forEach((b) => b.items.forEach((id) => boxed.add(id)));
-      list.innerHTML = L.boxes.map(sideBoxItem).join("") + sortedTapes().filter((p) => !boxed.has(p.id)).map(plItem).join(""); // 테이프는 최근에 들은 순
+      list.innerHTML = boxesByRecent(L.boxes).map(sideBoxItem).join("") + sortedTapes().filter((p) => !boxed.has(p.id)).map(plItem).join(""); // 테이프는 최근에 들은 순
     }
     markSideOn();
   }
@@ -1068,27 +1094,27 @@
     let conn;
     if (N) {
       let info = {}; try { info = JSON.parse(N.getServerInfo()); } catch (e) {}
-      conn = `<div class="set-card"><div class="set-row"><div><h3>PC에서 접속</h3><p>같은 Wi-Fi에 있는 컴퓨터의 브라우저에서 이 폰의 컬렉션을 듣고 재생목록을 편집할 수 있어요.</p></div><button class="switch${info.enabled ? " on" : ""}" data-act="server-toggle" aria-label="PC 접속"></button></div>
+      conn = `<div class="set-card"><div class="set-row"><div><h3>PC에서 접속</h3><p>같은 Wi-Fi에 있는 컴퓨터의 브라우저에서 이 폰의 컬렉션을 듣고 테이프를 편집할 수 있어요.</p></div><button class="switch${info.enabled ? " on" : ""}" data-act="server-toggle" aria-label="PC 접속"></button></div>
         ${info.enabled ? `<div class="addr">${(info.urls || []).map((u) => `<div><span>주소</span><b>${esc(u)}</b></div>`).join("") || `<div><span>주소</span><b>Wi-Fi에 연결되어 있지 않아요</b></div>`}<div><span>PIN</span><b class="pin-code">${esc(info.pin || "")}</b></div></div>
           <p style="margin-top:10px">PC 프로그램 「테이프 박스」를 실행하면 폰을 알아서 찾아요(브라우저 주소창에 위 주소를 넣어도 돼요). 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>` : ""}</div>`;
     } else {
-      conn = `<div class="set-card"><h3>폰에 연결됨</h3><p>지금 이 화면은 폰에 저장된 컬렉션을 실시간으로 불러오고 있어요. 재생목록·메모·아끼는 곡은 폰에 바로 저장돼요.</p></div>`;
+      conn = `<div class="set-card"><h3>폰에 연결됨</h3><p>지금 이 화면은 폰에 저장된 컬렉션을 실시간으로 불러오고 있어요. 테이프·메모·아끼는 곡은 폰에 바로 저장돼요.</p></div>`;
     }
     return `<div class="page"><h2 style="font-size:30px;margin:8px 0 0">설정 · 연결</h2>
       ${conn}
-      ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·재생목록을 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
+      ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·테이프를 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
       ${N ? playlistDirCard(N) : ""}
       <div class="set-card" id="folder-card">${folderCard()}</div>
       ${N ? "" : lsSlot()}
-      <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 재생목록 ${L.playlists.length}개</p></div>
+      <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 테이프 ${L.playlists.length}개</p></div>
     </div>`;
   };
 
   // 다른 앱(삼성뮤직 등)이 내보낸 재생목록 파일 폴더 (폰에서만 고를 수 있다)
   function playlistDirCard(N) {
     let dir = ""; try { dir = N.getPlaylistDir ? N.getPlaylistDir() : ""; } catch (e) {}
-    return `<div class="set-card"><div class="set-row"><div><h3>재생목록 파일 가져오기</h3><p>삼성뮤직에서 내보낸 .smpl, 다른 앱의 .m3u 파일이 있는 폴더를 고르면 라이브러리를 읽을 때마다 가져와요. 이 앱에서 고친 재생목록은 그대로 둬요.</p></div>
+    return `<div class="set-card"><div class="set-row"><div><h3>다른 앱 재생목록을 테이프로 가져오기</h3><p>삼성뮤직에서 내보낸 .smpl, 다른 앱의 .m3u 파일이 있는 폴더를 고르면 라이브러리를 읽을 때마다 가져와요. 이 앱에서 고친 테이프는 그대로 둬요.</p></div>
       <button class="btn" data-act="pldir-pick">${dir ? "바꾸기" : "폴더 고르기"}</button></div>
       ${dir ? `<div class="addr"><div><span>폴더</span><b style="font-size:15px">${esc(dir)}</b></div></div><div style="margin-top:10px;text-align:right"><button class="btn ghost" data-act="pldir-clear">해제</button></div>` : ""}</div>`;
   }
@@ -1356,7 +1382,7 @@
         <button class="icon-btn" data-act="prev" title="이전"><i class="ic ic-prev"></i></button>
         <button class="icon-btn pb-mini-play" data-act="toggle" title="재생/일시정지"><i class="ic ${playIc}"></i></button>
         <button class="icon-btn" data-act="next" title="다음"><i class="ic ic-next"></i></button>
-        <button class="icon-btn" data-act="mini-queue" title="재생목록"><i class="ic ic-queue"></i></button>
+        <button class="icon-btn" data-act="mini-queue" title="대기열"><i class="ic ic-queue"></i></button>
       </div>
       <div class="pb-mini-prog"><i></i></div>`;
     if (isMobile()) marquee($(".pb-now b", bar));
@@ -1546,7 +1572,7 @@
           <div class="np-meta">
             <div><b>${esc(t.title)}</b><span>${artistLinks(t)}</span></div>
             ${P.native ? "" : `<div class="np-vol" title="음량"><i class="ic ic-volume dim"></i><div class="range" data-range="vol"><div class="track"><div class="fill"></div></div><div class="knob"></div></div></div>`}
-            <button class="icon-btn np-q-btn" data-act="mini-queue" title="재생목록"><i class="ic ic-queue"></i></button>
+            <button class="icon-btn np-q-btn" data-act="mini-queue" title="대기열"><i class="ic ic-queue"></i></button>
           </div>
           <div class="np-seek"><div class="range" data-range="seek"><div class="track"><div class="fill"></div></div><div class="knob"></div></div>
             <div class="times"><span data-time="pos">${U.fmtDur(P.pos)}</span><span data-time="dur">${U.fmtDur(P.dur)}</span></div></div>
@@ -1561,7 +1587,7 @@
         <div class="np-sheet-bg" data-act="q-close"></div>
         <aside class="np-side">
           <div class="np-side-tape">${cassette(contextTape(), t, { now: true, order: tapeOrder(t), noHeart: true })}</div>
-          <div class="np-tabs"><button data-act="np-side" data-v="queue">재생목록</button><button data-act="np-side" data-v="lyrics">가사</button></div>
+          <div class="np-tabs"><button data-act="np-side" data-v="queue">대기열</button><button data-act="np-side" data-v="lyrics">가사</button></div>
           <div class="np-side-body"></div>
         </aside>
       </div>`;
@@ -1589,8 +1615,8 @@
     if (npId === "__eject") return;
     npId = "__eject";
     const playable = (pl) => pl && pl.items.some((id) => L.byId.has(id));
-    const tapes = [likedPl()].concat(L.playlists).filter(playable);
-    const boxes = L.boxes.filter((b) => boxTapes(b).some(playable));
+    const tapes = sortedTapes().filter(playable); // 최근에 들은 순
+    const boxes = boxesByRecent(L.boxes.filter((b) => boxTapes(b).some(playable)));
     // 방금까지 재생하던 테이프가 상자 안에 있으면 그 상자를 고른 채로 시작
     const lastBox = (lastTapeId && boxOf(lastTapeId)) || (lastBoxId && L.boxes.find((b) => b.id === lastBoxId));
     shelfBox = lastBox && boxes.includes(lastBox) ? lastBox.id : null;
@@ -1677,7 +1703,7 @@
     if (!pl) return;
     const ids = pl.items.filter((id) => L.byId.has(id)); if (!ids.length) return;
     npEjected = false; npId = null; npInsert = true;
-    // 꽂기만 하고 재생은 사용자가 누를 때 (임의 테이프는 원래 목록 그대로 다시)
+    // 꽂기만 하고 재생은 사용자가 누를 때. 늘 첫 곡부터 (임의 테이프는 원래 목록 그대로 다시)
     P.playList(ids, 0, tmp ? tmp.ctx : { type: "playlist", id: pl.id, name: pl.name }, { autoplay: false });
     renderFull();
   }
@@ -1795,9 +1821,9 @@
       <div class="mh">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div></div>
       <button data-m="next" data-id="${esc(id)}"><i class="ic ic-queue"></i>다음에 재생</button>
       <button data-m="queue" data-id="${esc(id)}"><i class="ic ic-plus"></i>대기열 맨 뒤에 추가</button>
-      <button data-m="addpl" data-id="${esc(id)}"><i class="ic ic-stack"></i>재생목록에 추가…</button>
+      <button data-m="addpl" data-id="${esc(id)}"><i class="ic ic-stack"></i>테이프에 담기…</button>
       <button data-m="fav" data-id="${esc(id)}"><i class="ic ${t.fav ? "ic-heart-fill" : "ic-heart"}"></i>${t.fav ? "아끼는 곡에서 빼기" : "아끼는 곡으로"}</button>
-      ${inPl ? `<button data-m="plremove" data-id="${esc(id)}" data-i="${ctx.i}" class="danger"><i class="ic ic-x"></i>이 재생목록에서 빼기</button>` : ""}
+      ${inPl ? `<button data-m="plremove" data-id="${esc(id)}" data-i="${ctx.i}" class="danger"><i class="ic ic-x"></i>이 테이프에서 빼기</button>` : ""}
       <hr>
       <button data-m="go" data-href="#/track/${encodeURIComponent(id)}"><i class="ic ic-shelf"></i>곡 상세보기</button>
       ${t.album ? `<button data-m="go" data-href="${albumHref(t)}"><i class="ic ic-stack"></i>앨범으로 이동</button>` : ""}
@@ -1893,21 +1919,43 @@
         np.desc = desc; if (desc) API.updatePlaylist(np.id, { desc }).catch(() => {});
         L.playlists.push(np); renderSidebar();
         const bx = intoBox && L.boxes.find((x) => x.id === intoBox);
-        if (bx) { moveTapes([np.id], bx); toast(`「${bx.name}」 상자에 새 테이프를 넣었어요`); return; }
-        if (thenAdd && thenAdd.length) toast(`「${name}」에 담았어요`);
-        else location.hash = "#/playlist/" + encodeURIComponent(np.id);
+        if (bx) { moveTapes([np.id], bx, true); toast(`「${bx.name}」 상자에 새 테이프를 넣었어요`); }
+        else if (thenAdd && thenAdd.length) toast(`「${name}」에 담았어요`);
+        closeFull(); location.hash = "#/playlist/" + encodeURIComponent(np.id); // 어디서 만들든 새 테이프 화면으로 바로
       } catch (err) { toast("만들지 못했어요: " + err.message); }
     });
   }
+  // 테이프 고르기 팝업 위 검색창: 테이프 이름이 맞는 것 먼저, 그다음 담긴 곡의 제목·가수가 맞는 것 (초성도). tail은 검색어가 없을 때만 끝에 붙인다
+  function bindPickSearch(input, grid, list, cell, tail) {
+    const draw = () => {
+      const raw = input.value.trim(), q = U.norm(raw), cho = U.isChoQuery(raw);
+      if (!q) { grid.innerHTML = list.map(cell).join("") + (tail || ""); return; }
+      const byName = [], bySong = [];
+      list.forEach((pl) => {
+        const n = U.norm(pl.name);
+        if (cho ? U.chosung(n).includes(q) : n.includes(q)) byName.push(pl);
+        else if (pl.items.some((id) => { const t = L.byId.get(id); return t && (cho ? t._cho.includes(q) : t._q.includes(q)); })) bySong.push(pl);
+      });
+      const found = byName.concat(bySong);
+      grid.innerHTML = found.length ? found.map(cell).join("") : '<p class="dimmer pick-empty">찾는 테이프가 없어요</p>';
+    };
+    input.addEventListener("input", draw);
+    return draw;
+  }
+  // 곡을 테이프에 담기 (곡 메뉴·여러 곡 선택): 상자의 「테이프 추가하기」와 같은 화면. 누르면 바로 담긴다
   function addToPlaylistModal(ids) {
     const one = ids.length === 1;
-    // 꽂혀 있는 테이프 중에서 골라 담는다
-    openModal(`<h3>재생목록에 추가</h3><div class="pick-tapes">
-      ${L.playlists.map((p) => `<div class="pick-tape" role="button" tabindex="0" data-pl="${esc(p.id)}" title="「${esc(p.name)}」에 담기">${cassette(p, bandTrack(p), { noHeart: true })}${one && p.items.includes(ids[0]) ? '<span class="already">담겨 있음</span>' : ""}</div>`).join("")}
-      <button class="tape-new" data-pl="__new"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>
-    </div><div class="row-btns"><button class="btn ghost" data-close>닫기</button></div>`, "wide");
-    $(".pick-tapes", modal).addEventListener("keydown", (e) => { const b = e.target.closest(".pick-tape"); if (b && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); b.click(); } });
-    $(".pick-tapes", modal).addEventListener("click", (e) => {
+    const T = sortedTapes().filter((p) => p.id !== "liked"); // 최근에 들은 순 (아끼는 곡은 하트로 담는다)
+    const cell = (p) => `<div class="pick-tape" role="button" tabindex="0" data-pl="${esc(p.id)}" title="「${esc(p.name)}」에 담기">${cassette(p, bandTrack(p), { noHeart: true })}${one && p.items.includes(ids[0]) ? '<span class="already">담겨 있음</span>' : ""}</div>`;
+    const tail = `<button class="tape-new" data-pl="__new"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>`;
+    openModal(`<h3>테이프에 담기</h3><p class="dimmer" style="margin:-8px 0 12px;font-size:13px">${one ? "" : `${ids.length}곡을 `}담을 테이프를 눌러 주세요</p>
+      <label class="search-box pick-search"><i class="ic ic-search"></i><input type="search" placeholder="테이프 이름이나 곡으로 찾기" autocomplete="off" spellcheck="false"></label>
+      <div class="pick-tapes">${T.map(cell).join("")}${tail}</div>
+      <div class="row-btns"><button class="btn ghost" data-close>닫기</button></div>`, "wide");
+    const grid = $(".pick-tapes", modal);
+    bindPickSearch($(".pick-search input", modal), grid, T, cell, tail);
+    grid.addEventListener("keydown", (e) => { const b = e.target.closest(".pick-tape"); if (b && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); b.click(); } });
+    grid.addEventListener("click", (e) => {
       const b = e.target.closest("[data-pl]"); if (!b) return;
       if (b.dataset.pl === "__new") { playlistModal(null, ids); return; }
       const p = L.playlists.find((x) => x.id === b.dataset.pl);
@@ -2010,20 +2058,8 @@
       <label class="search-box pick-search"><i class="ic ic-search"></i><input type="search" placeholder="테이프 이름이나 곡으로 찾기" autocomplete="off" spellcheck="false"></label>
       <div class="pick-tapes">${T.map(cell).join("")}</div>
       <div class="row-btns"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="box-add-ok">넣기</button></div>`, "wide");
-    const grid = $(".pick-tapes", modal), find = $(".pick-search input", modal);
-    // 찾기: 테이프 이름이 맞는 것 먼저, 그다음 담긴 곡의 제목·가수가 맞는 것 (초성도). 고른 것은 그대로 남는다
-    find.addEventListener("input", () => {
-      const raw = find.value.trim(), q = U.norm(raw), cho = U.isChoQuery(raw);
-      if (!q) { grid.innerHTML = T.map(cell).join(""); return; }
-      const byName = [], bySong = [];
-      T.forEach((pl) => {
-        const n = U.norm(pl.name);
-        if (cho ? U.chosung(n).includes(q) : n.includes(q)) byName.push(pl);
-        else if (pl.items.some((id) => { const t = L.byId.get(id); return t && (cho ? t._cho.includes(q) : t._q.includes(q)); })) bySong.push(pl);
-      });
-      const found = byName.concat(bySong);
-      grid.innerHTML = found.length ? found.map(cell).join("") : '<p class="dimmer pick-empty">찾는 테이프가 없어요</p>';
-    });
+    const grid = $(".pick-tapes", modal);
+    bindPickSearch($(".pick-search input", modal), grid, T, cell); // 찾는 동안에도 고른 것은 그대로 남는다
     grid.addEventListener("keydown", (e) => { const t = e.target.closest(".pick-tape"); if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); t.click(); } });
     grid.addEventListener("click", (e) => {
       const t = e.target.closest(".pick-tape[data-pl]"); if (!t) return;
@@ -2096,7 +2132,7 @@
       const act = a.dataset.act;
       const id = a.dataset.id || (a.closest("[data-id]") && a.closest("[data-id]").dataset.id);
       switch (act) {
-        case "back": history.back(); return;
+        case "back": goBack(); return;
         case "toggle":
           if (a.closest(".np-tape-wrap") && isMobile()) { setMemo(true); return; } // 폰: 카세트를 누르면 가사 메모지 (PC는 옆 패널의 가사 탭)
           P.toggle(); return;
@@ -2176,7 +2212,7 @@
           return;
         }
         case "pldir-pick": try { window.NativeBridge.pickPlaylistDir(); } catch (err) {} return;
-        case "pldir-clear": try { window.NativeBridge.clearPlaylistDir(); } catch (err) {} toast("가져오기 폴더를 해제했어요. 이미 가져온 재생목록은 남아 있어요"); rerender(); return;
+        case "pldir-clear": try { window.NativeBridge.clearPlaylistDir(); } catch (err) {} toast("가져오기 폴더를 해제했어요. 이미 가져온 테이프는 남아 있어요"); rerender(); return;
         case "fd-open": { const p = a.dataset.path; FD.open.has(p) ? FD.open.delete(p) : FD.open.add(p); renderFolderCard(); return; }
         case "fd-check": { const ps = fdUnder(a.dataset.path), turnOff = ps.some((p) => !FD.off.has(p)); ps.forEach((p) => (turnOff ? FD.off.add(p) : FD.off.delete(p))); FD.dirty = true; renderFolderCard(); return; }
         case "fd-auto": FD.autoNew = !FD.autoNew; FD.dirty = true; renderFolderCard(); return;
@@ -2192,11 +2228,11 @@
         case "lyr-revert": revertLyricsModal(a.dataset.id); return;
         case "server-toggle": { const on = !a.classList.contains("on"); try { window.NativeBridge.setServerEnabled(on); } catch (err) {} setTimeout(rerender, 400); return; }
         case "dev-import": {
-          openModal(`<h3>원래 앱 데이터로 덮어쓸까요?</h3><p class="dim" style="margin:0">디버그 앱의 기록·재생목록을 원래 앱 것으로 바꿔요. 상자는 그대로 남아요.</p>
+          openModal(`<h3>원래 앱 데이터로 덮어쓸까요?</h3><p class="dim" style="margin:0">디버그 앱의 기록·테이프를 원래 앱 것으로 바꿔요. 상자는 그대로 남아요.</p>
             <div class="row-btns"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="dev-import-ok">가져오기</button></div>`);
           $("#dev-import-ok").addEventListener("click", () => {
             closeModal(); toast("원래 앱에서 가져오는 중…");
-            API.devImport().then((r) => { toast(`${U.num(r.tracks)}곡의 기록과 재생목록 ${r.playlists}개를 가져왔어요`); setTimeout(reloadLibrary, 600); })
+            API.devImport().then((r) => { toast(`${U.num(r.tracks)}곡의 기록과 테이프 ${r.playlists}개를 가져왔어요`); setTimeout(reloadLibrary, 600); })
               .catch((err) => toast("실패: " + err.message));
           });
           return;
@@ -2493,7 +2529,7 @@
       <button class="icon-btn" data-act="sel-addpl" title="테이프에 담기"${dis}><i class="ic ic-stack"></i></button>
       <button class="icon-btn" data-act="sel-next" title="다음에 재생"${dis}><i class="ic ic-queue"></i></button>
       <button class="icon-btn" data-act="sel-shuffle" title="섞어서 재생"${dis}><i class="ic ic-shuffle"></i></button>
-      <button class="selbar-play" data-act="sel-play" title="고른 곡을 지금 재생목록으로 재생"${dis}><i class="ic ic-play"></i><span>재생</span></button>
+      <button class="selbar-play" data-act="sel-play" title="고른 곡을 바로 재생"${dis}><i class="ic ic-play"></i><span>재생</span></button>
     </div>`;
   }
 
