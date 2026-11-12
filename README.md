@@ -34,6 +34,11 @@
   - 빌드할 때 루트의 웹 파일이 `assets/www`로 복사된다 (`mock.html`, `mock.js` 제외)
 
 - PC 프로그램: `pip install -r pc/requirements.txt` 후 `python pc/tape_player.py`
+- 폰·PC 함께 디버깅: 폰을 USB로 연결하고 `dev.bat` 더블클릭 → PC 브라우저에 실제 폰 데이터로 화면이 뜬다
+  - 폰에 디버그 앱이 없거나 `android/`의 소스(Java 등)가 마지막 설치 이후 바뀌었으면 시작할 때 알아서 빌드·설치한다 (앱 데이터 유지)
+  - 화면 파일을 저장하면 PC 브라우저와 폰 앱 화면이 함께 새로고침된다 (css만 바뀌면 스타일만 갈아 끼움)
+  - `pc/devserver.py`(포트 8655)가 화면 파일은 저장소에서, `/api/`는 `adb forward`로 폰에서 가져온다. 폰 앱은 `adb reverse`로 같은 화면 파일을 읽는다 (개발 서버가 없으면 APK 사본)
+  - 검사: PC 화면은 브라우저 F12, 폰 화면은 크롬 `chrome://inspect`
 
 ## PC에서 접속
 

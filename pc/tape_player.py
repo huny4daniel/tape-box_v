@@ -38,8 +38,11 @@ import webview  # noqa: E402
 
 from lyricsync import LyricSync
 
-APP_TITLE = "테이프 박스"
-PORT = 8642
+# --debug: 폰의 디버그 앱(포트 8643)에 붙는다. 원래 앱과 짝 맺은 쿠키·지난 주소를 섞지 않게 따로 둔다
+DEBUG = "--debug" in sys.argv[1:]
+APP_TITLE = "테이프 박스 (디버그)" if DEBUG else "테이프 박스"
+PORT = 8643 if DEBUG else 8642
+HOST_KEY = "host_debug" if DEBUG else "host"
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "tape-player")
 CONFIG = os.path.join(DATA_DIR, "config.json")
 
@@ -178,7 +181,7 @@ class Finder:
         cfg = load_config()
         while True:
             host, state = None, None
-            saved = cfg.get("host")
+            saved = cfg.get(HOST_KEY)
             if saved:
                 self.status("폰에 연결하고 있어요…", saved)
                 state = check(saved)
@@ -196,7 +199,7 @@ class Finder:
                     state = check(host)
 
             if state == "ready":
-                cfg["host"] = host
+                cfg[HOST_KEY] = host
                 save_config(cfg)
                 self.window.load_url(f"http://{host}:{PORT}/")
                 return
@@ -265,13 +268,13 @@ class Api:
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     api = Api()
-    window = webview.create_window(APP_TITLE, html=STATUS_HTML, width=1280, height=820,
+    window = webview.create_window(APP_TITLE + (" (dev)" if DEV else ""), html=STATUS_HTML, width=1280, height=820,
                                    min_size=(720, 520), background_color="#0d0c0b", js_api=api)
     api._window = window
     finder = Finder(window)
     # 쿠키(짝 맺은 기록)를 남기려면 private_mode를 꺼야 한다
     webview.start(lambda: threading.Thread(target=finder.run, daemon=True).start(),
-                  private_mode=False, storage_path=os.path.join(DATA_DIR, "webview"))
+                  private_mode=False, storage_path=os.path.join(DATA_DIR, "webview-debug" if DEBUG else "webview"))
 
 
 if __name__ == "__main__":

@@ -28,9 +28,14 @@ public class Db extends SQLiteOpenHelper {
         public String memo;
     }
 
-    public Db(Context c) { super(c, "collection.db", null, 3); }
+    public Db(Context c) { super(c, "collection.db", null, 4); }
 
     @Override public void onConfigure(SQLiteDatabase db) { db.enableWriteAheadLogging(); }
+
+    // 디버그 빌드: 개발 중 이전 커밋으로 돌아가 DB 버전이 낮아져도 그대로 연다 (스키마 추가분은 CREATE IF NOT EXISTS라 다시 올려도 안전)
+    @Override public void onDowngrade(SQLiteDatabase db, int o, int n) {
+        if (!BuildConfig.DEBUG) super.onDowngrade(db, o, n);
+    }
 
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE meta (key TEXT PRIMARY KEY, no INTEGER NOT NULL, added_at INTEGER, plays INTEGER DEFAULT 0," +
@@ -41,12 +46,14 @@ public class Db extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)");
         createLyrics(db);
         createRejected(db);
+        createBoxes(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int o, int n) {
         if (o < 2) createLyrics(db);
         else if (o < 3) db.execSQL("ALTER TABLE lyrics ADD COLUMN chk INTEGER DEFAULT 0");
         if (o < 3) createRejected(db);
+        if (o < 4) createBoxes(db);
     }
 
     /** PC가 음원에 맞춰 만들어 보낸 시간 가사(LRC). 파일 태그보다 먼저 쓴다 */
@@ -57,6 +64,11 @@ public class Db extends SQLiteOpenHelper {
     /** 듣다가 되돌린 곡. PC 생성기가 연결될 때 받아 가서 다시 만들거나 되살리지 않게 한다 */
     private static void createRejected(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS lyrics_rejected (key TEXT PRIMARY KEY, at INTEGER)");
+    }
+
+    /** 테이프 상자: 재생목록 id를 담아 두는 묶음. 테이프 하나는 상자 하나에만 들어간다 (화면에서 맞춘다) */
+    private static void createBoxes(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS boxes (id TEXT PRIMARY KEY, name TEXT, created INTEGER, updated INTEGER, items TEXT)");
     }
 
     // ───── 곡 기록 ─────
@@ -157,6 +169,85 @@ public class Db extends SQLiteOpenHelper {
 
     public synchronized void deletePlaylist(String id) {
         getWritableDatabase().delete("playlists", "id = ?", new String[]{id});
+    }
+
+    /**
+     * (디버그 빌드) 원래 앱의 곡 기록·재생목록으로 통째로 바꾼다. tracks는 /api/library 의 tracks, playlists는 /api/playlists 모양.
+     * 수집 번호까지 그대로 옮기고, 원래 앱에 없던 곡은 다음 스캔 때 뒤에 번호를 받는다.
+     */
+    public synchronized void replaceFromRelease(JSONArray tracks, JSONArray playlists) throws JSONException {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete("meta", null, null);
+            for (int i = 0; i < tracks.length(); i++) {
+                JSONObject t = tracks.getJSONObject(i);
+                if (t.optInt("n", 0) <= 0) continue;
+                ContentValues v = new ContentValues();
+                v.put("key", t.getString("id")); v.put("no", t.getInt("n")); v.put("added_at", t.optLong("addedAt", 0));
+                v.put("plays", t.optInt("plays", 0)); v.put("first_played", t.optLong("firstPlayed", 0)); v.put("last_played", t.optLong("lastPlayed", 0));
+                v.put("listened_ms", t.optLong("listenedMs", 0)); v.put("fav", t.optBoolean("fav", false) ? 1 : 0); v.put("fav_at", t.optLong("favAt", 0));
+                String memo = t.optString("memo", "");
+                if (!memo.isEmpty()) v.put("memo", memo);
+                db.insertWithOnConflict("meta", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+            }
+            db.delete("playlists", null, null);
+            for (int i = 0; i < playlists.length(); i++) {
+                JSONObject p = playlists.getJSONObject(i);
+                ContentValues v = new ContentValues();
+                v.put("id", p.getString("id")); v.put("name", p.optString("name", "")); v.put("descr", p.optString("desc", ""));
+                v.put("created", p.optLong("created", 0)); v.put("updated", p.optLong("updated", 0));
+                v.put("items", p.optJSONArray("items") == null ? "[]" : p.getJSONArray("items").toString());
+                db.insertWithOnConflict("playlists", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+            }
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+    }
+
+    // ───── 테이프 상자 ─────
+    private static JSONObject boxRow(Cursor c) throws JSONException {
+        JSONObject o = new JSONObject();
+        o.put("id", c.getString(0)); o.put("name", c.getString(1));
+        o.put("created", c.getLong(2)); o.put("updated", c.getLong(3));
+        o.put("items", new JSONArray(c.getString(4) == null ? "[]" : c.getString(4)));
+        return o;
+    }
+
+    public synchronized JSONArray boxes() throws JSONException {
+        JSONArray a = new JSONArray();
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT id,name,created,updated,items FROM boxes ORDER BY created", null)) {
+            while (c.moveToNext()) a.put(boxRow(c));
+        }
+        return a;
+    }
+
+    public synchronized JSONObject box(String id) throws JSONException {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT id,name,created,updated,items FROM boxes WHERE id = ?", new String[]{id})) {
+            return c.moveToFirst() ? boxRow(c) : null;
+        }
+    }
+
+    public synchronized JSONObject createBox(String name, JSONArray items) throws JSONException {
+        String id = "b" + UUID.randomUUID().toString().replace("-", "").substring(0, 11);
+        long now = System.currentTimeMillis();
+        ContentValues v = new ContentValues();
+        v.put("id", id); v.put("name", name); v.put("created", now); v.put("updated", now);
+        v.put("items", (items == null ? new JSONArray() : items).toString());
+        getWritableDatabase().insert("boxes", null, v);
+        return box(id);
+    }
+
+    public synchronized JSONObject updateBox(String id, JSONObject patch) throws JSONException {
+        ContentValues v = new ContentValues();
+        if (patch.has("name")) v.put("name", patch.getString("name"));
+        if (patch.has("items")) v.put("items", patch.getJSONArray("items").toString());
+        v.put("updated", System.currentTimeMillis());
+        getWritableDatabase().update("boxes", v, "id = ?", new String[]{id});
+        return box(id);
+    }
+
+    public synchronized void deleteBox(String id) {
+        getWritableDatabase().delete("boxes", "id = ?", new String[]{id});
     }
 
     /**

@@ -49,6 +49,9 @@
     { id: "p2", name: "비 오는 날", desc: "", created: now - 86400000 * 90, updated: now - 86400000 * 10, items: tracks.slice(800, 840).map((t) => t.id) },
   ];
   const savePl = () => { try { localStorage.setItem("mock.pl", JSON.stringify(playlists)); } catch (e) {} };
+  const loadBox = () => { try { return JSON.parse(localStorage.getItem("mock.box")); } catch (e) { return null; } };
+  let boxes = loadBox() || [{ id: "b1", name: "여름 상자", created: now - 86400000 * 30, updated: now - 86400000 * 2, items: ["p2"] }];
+  const saveBox = () => { try { localStorage.setItem("mock.box", JSON.stringify(boxes)); } catch (e) {} };
   const ok = (v) => new Promise((r) => setTimeout(() => r(JSON.parse(JSON.stringify(v))), 40));
 
   const mockFolders = { autoNew: true, off: ["Download/KakaoTalk/"], folders: [
@@ -72,6 +75,10 @@
     createPlaylist: (name, items) => { const p = { id: "p" + Date.now(), name, desc: "", created: Date.now(), updated: Date.now(), items: items || [] }; playlists.push(p); savePl(); return ok(p); },
     updatePlaylist: (id, patch) => { const p = playlists.find((x) => x.id === id); Object.assign(p, patch, { updated: Date.now() }); savePl(); return ok(p); },
     deletePlaylist: (id) => { playlists = playlists.filter((x) => x.id !== id); savePl(); return ok({ ok: true }); },
+    boxes: () => ok(boxes),
+    createBox: (name, items) => { const b = { id: "b" + Date.now(), name, created: Date.now(), updated: Date.now(), items: items || [] }; boxes.push(b); saveBox(); return ok(b); },
+    updateBox: (id, patch) => { const b = boxes.find((x) => x.id === id); Object.assign(b, patch, { updated: Date.now() }); saveBox(); return ok(b); },
+    deleteBox: (id) => { boxes = boxes.filter((x) => x.id !== id); saveBox(); return ok({ ok: true }); },
     rescan: () => ok({ ok: true }),
     folders: () => ok(mockFolders),
     setFolders: (off, autoNew) => { mockFolders.off = off; mockFolders.autoNew = autoNew; return ok({ ok: true }); },

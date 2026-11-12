@@ -118,7 +118,14 @@ public class WebServer extends NanoHTTPD {
         try {
             if (!isLocal(s) && !remoteEnabled) return text(Response.Status.FORBIDDEN, "폰 앱에서 「PC에서 접속」을 켜 주세요.");
             String uri = s.getUri();
-            if (!uri.startsWith("/api/")) return asset(uri);
+            if (BuildConfig.DEBUG && uri.startsWith("/__dev/")) { // 개발 서버의 고친 파일 알림 (롱 폴링)
+                Response d = dev(uri, s.getQueryParameterString(), 30_000);
+                return d != null ? d : text(Response.Status.SERVICE_UNAVAILABLE, "no dev server");
+            }
+            if (!uri.startsWith("/api/")) {
+                Response d = BuildConfig.DEBUG ? dev(uri, null, 5_000) : null;
+                return d != null ? d : asset(uri);
+            }
             Response r = api(s, uri);
             r.addHeader("Cache-Control", r.getMimeType() != null && r.getMimeType().startsWith("image/") ? "max-age=604800" : "no-store");
             return r;
@@ -135,6 +142,7 @@ public class WebServer extends NanoHTTPD {
             o.put("authorized", authorized(s));
             o.put("scanned", app.library.isScanned());
             o.put("count", app.library.size());
+            if (BuildConfig.DEBUG) o.put("debug", true);
             return json(Response.Status.OK, o.toString());
         }
         if (uri.equals("/api/pair") && m == Method.POST) return pair(s);
@@ -208,6 +216,32 @@ public class WebServer extends NanoHTTPD {
                 }
                 if (arg != null && m == Method.DELETE) { app.db.deletePlaylist(arg); return ok(); }
                 break;
+            }
+            case "boxes": {
+                if (arg == null && m == Method.GET) return json(Response.Status.OK, app.db.boxes().toString());
+                if (arg == null && m == Method.POST) {
+                    JSONObject b = body(s);
+                    return json(Response.Status.OK, app.db.createBox(b.optString("name", "새 상자"), b.optJSONArray("items")).toString());
+                }
+                if (arg != null && m == Method.PUT) {
+                    JSONObject b = app.db.updateBox(arg, body(s));
+                    return b == null ? json(Response.Status.NOT_FOUND, "{\"error\":\"not found\"}") : json(Response.Status.OK, b.toString());
+                }
+                if (arg != null && m == Method.DELETE) { app.db.deleteBox(arg); return ok(); }
+                break;
+            }
+            case "dev-import": { // (디버그 빌드) 같은 폰에 깔린 원래 앱(8642)의 곡 기록·재생목록을 그대로 복사해 온다
+                if (!BuildConfig.DEBUG || m != Method.POST) break;
+                JSONArray tracks, pls;
+                try {
+                    tracks = new JSONObject(httpGet("http://127.0.0.1:8642/api/library")).getJSONArray("tracks");
+                    pls = new JSONArray(httpGet("http://127.0.0.1:8642/api/playlists"));
+                } catch (Exception e) {
+                    return json(Response.Status.SERVICE_UNAVAILABLE, "{\"error\":\"원래 테이프 박스 앱에 닿지 않아요. 원래 앱을 한 번 열어 둔 뒤 다시 해 주세요\"}");
+                }
+                app.db.replaceFromRelease(tracks, pls);
+                app.rescan(null); // 원래 앱에 없던 곡의 번호를 매기고 화면에 알린다
+                return json(Response.Status.OK, new JSONObject().put("tracks", tracks.length()).put("playlists", pls.length()).toString());
             }
             case "rescan":
                 app.rescan(null);
@@ -284,6 +318,46 @@ public class WebServer extends NanoHTTPD {
         TYPES.put("svg", "image/svg+xml");
         TYPES.put("png", "image/png");
         TYPES.put("json", JSON);
+    }
+
+    // ───── 개발 (디버그 빌드만) ─────
+    // PC에서 dev.bat(pc/devserver.py)을 띄우면 adb reverse tcp:8655 tcp:8655 로 이어져,
+    // 화면 파일을 APK 안 것 대신 PC 저장소에서 바로 받아 준다. 폰 앱·PC 프로그램·브라우저가 모두 이 서버를 거치므로
+    // PC에서 파일 하나를 고치면 셋 다 바로 바뀐다. 개발 서버가 없으면 APK 안의 파일 그대로.
+    private static final int DEV_PORT = 8655; // 디버그 앱 자신의 서버(8643)·원래 앱(8642)과 겹치지 않게 (8650은 다른 프로그램이 흔히 쓴다)
+    private volatile long devDownUntil = 0;
+
+    private Response dev(String uri, String query, int readTimeout) {
+        if (System.currentTimeMillis() < devDownUntil) return null;
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL("http://127.0.0.1:" + DEV_PORT + uri + (query == null || query.isEmpty() ? "" : "?" + query)).openConnection();
+            c.setConnectTimeout(400);
+            c.setReadTimeout(readTimeout);
+            c.setUseCaches(false);
+            int code = c.getResponseCode();
+            if (code != 200) return null;
+            byte[] data;
+            try (InputStream in = c.getInputStream()) { data = readAll(in); }
+            String type = c.getContentType();
+            Response r = newFixedLengthResponse(Response.Status.OK, type == null ? "application/octet-stream" : type, new ByteArrayInputStream(data), data.length);
+            r.addHeader("Cache-Control", "no-store");
+            return r;
+        } catch (java.net.SocketTimeoutException e) {
+            return null; // 롱 폴링이 길었을 뿐
+        } catch (Exception e) {
+            devDownUntil = System.currentTimeMillis() + 5000; // 개발 서버가 없다: 잠시 다시 두드리지 않는다
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private static String httpGet(String url) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        c.setConnectTimeout(1500); c.setReadTimeout(20_000);
+        try (InputStream in = c.getInputStream()) { return new String(readAll(in), StandardCharsets.UTF_8); }
+        finally { c.disconnect(); }
     }
 
     private Response asset(String uri) {

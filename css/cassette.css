@@ -2,7 +2,8 @@
    안쪽 크기는 모두 테이프 폭 기준(cqw)이라 작게도 크게도 똑같이 보인다. */
 
 /* ───────── 테이프 ───────── */
-.tape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 18px 16px; padding: 4px 0 12px; }
+/* PC: 한 줄에 많아야 5개 (창이 좁으면 칸이 220px 밑으로 줄지 않게 4·3개로) */
+.tape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(220px, calc((100% - 64px) / 5)), 1fr)); gap: 20px 16px; padding: 4px 0 12px; }
 
 .tape {
   --p: .3; /* 재생 진행도: 왼쪽 릴 → 오른쪽 릴로 테이프가 옮겨 감 */
@@ -130,6 +131,19 @@
 .tape-new:hover { border-color: var(--accent); color: var(--text); background: rgba(232,178,90,.05); }
 .tape-new .ic { width: 28px; height: 28px; }
 .tape-grid .tape[data-pl] { cursor: pointer; }
+
+/* 상자 편집: 테이프마다 왼쪽 위 빼기(×), 오른쪽 위 손잡이 */
+.tape-edit { position: relative; border-radius: 6px; transition: box-shadow .1s, opacity .1s; }
+.tape-grid.editing .tape[data-pl] { cursor: default; }
+.tape-grid.editing .tape:hover { transform: none; }
+.tape-x, .tape-grip { position: absolute; top: -8px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+.tape-x { left: -8px; background: #e06464; color: #fff; }
+.tape-x .ic { width: 16px; height: 16px; }
+.tape-grip { right: -8px; background: var(--surface-3); color: var(--text); cursor: grab; touch-action: none; }
+.tape-grip .ic { width: 18px; height: 18px; }
+.tape-edit.dragging { opacity: .4; }
+.tape-edit.drop-before { box-shadow: -4px 0 0 -1px var(--accent); }
+.tape-edit.drop-after { box-shadow: 4px 0 0 -1px var(--accent); }
 
 /* 홈의 테이프 줄: 옆으로 넘겨 가며 고른다 */
 .tape-row {
@@ -272,6 +286,14 @@
 .np-shelf-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 15px; }
 .np-shelf-search input::placeholder { color: var(--text-3); }
 .np-shelf-tape[hidden] { display: none; }
+/* 선반의 상자: 누르면 그 안의 테이프로. 상자 안에서는 위에 「상자 밖으로」 */
+.np-shelf-box { align-self: center; }
+.np-shelf-box .tbox { pointer-events: none; } /* 누름은 감싼 칸이 받는다 */
+.np-shelf-crumb { display: flex; justify-content: center; min-height: 0; }
+.np-shelf-crumb:empty { display: none; }
+.np-shelf-back { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 14px 0 10px; border-radius: 99px; background: rgba(255,255,255,.08); color: var(--text-2); font: inherit; font-size: 13px; font-weight: 700; }
+.np-shelf-back:hover { color: var(--text); background: rgba(255,255,255,.14); }
+.np-shelf-back .ic { width: 16px; height: 16px; }
 .np-eject-hint { margin: 0 0 6px; text-align: center; font-family: "Nanum Pen Script", var(--font); font-size: 26px; color: var(--text-2); }
 .np-shelf {
   align-self: stretch; display: flex; gap: 22px; overflow-x: auto; overscroll-behavior-x: contain;
@@ -280,7 +302,7 @@
 .np-shelf::-webkit-scrollbar { display: none; }
 .np-shelf-tape { flex: none; width: 320px; scroll-snap-align: center; cursor: pointer; touch-action: pan-x; }
 .tape-ghost { position: fixed; z-index: 10; margin: 0; pointer-events: none; transform-origin: 92% 100%; filter: drop-shadow(0 20px 28px rgba(0,0,0,.6)); }
-.np-shelf-tape .tape { filter: drop-shadow(0 12px 18px rgba(0,0,0,.55)); transition: transform .15s; }
+.np-shelf-tape .tape { box-shadow: 0 12px 20px rgba(0,0,0,.5); transition: transform .15s; } /* filter 그림자는 스크롤 중 매번 다시 그려 끊긴다 */
 .np-shelf-tape:active .tape { transform: translateY(6px) scale(.98); }
 
 /* 메모지 가사 (카세트 자리) */
@@ -338,7 +360,13 @@
   .np-tape-wrap.memo { width: min(530px, 100%); }
   .np-memo { height: auto; aspect-ratio: 1.6; }
   /* PC 재생 화면 오른쪽 재생목록: 칸과 글자·앨범아트를 크게 */
-  .np-main { grid-template-columns: minmax(0, 1fr) minmax(320px, 410px); }
+  /* 테이프 칸 폭을 묶고 두 칸을 가운데로 모아, 오른쪽 패널이 화면 끝이 아니라 테이프 가까이에 오게 */
+  .np-main { grid-template-columns: minmax(0, 720px) minmax(320px, 410px); justify-content: center; gap: 56px; padding-right: clamp(48px, 5vw, 96px); }
+  /* 오른쪽 패널: 위아래를 꽉 채우지 않고 가운데에. 위 탭으로 재생목록·가사를 바꿔 본다 */
+  .np-side { align-self: center; height: min(89%, 800px); }
+  .np-tabs { display: flex; }
+  .np-side-body { padding-top: 4px; }
+  .np-side-body.lyr { padding-top: 0; overflow: hidden; }
   .np-side-body .queue { padding: 0 9px 22px; }
   .np-side .queue h4 { margin: 16px 9px 7px; font-size: 15px; }
   .np-side .q-row { gap: 12px; padding: 7px 9px; border-radius: 7px; }
@@ -394,7 +422,7 @@
   .np-shelf::-webkit-scrollbar { display: none; }
   .np-shelf-tape { flex: none; width: min(74vw, 320px); scroll-snap-align: center; cursor: pointer; touch-action: pan-x; } /* 옆으로는 선반 넘기기, 아래로는 끌어 꽂기 */
   .tape-ghost { position: fixed; z-index: 10; margin: 0; pointer-events: none; transform-origin: 92% 100%; filter: drop-shadow(0 20px 28px rgba(0,0,0,.6)); }
-  .np-shelf-tape .tape { filter: drop-shadow(0 12px 18px rgba(0,0,0,.55)); transition: transform .15s; }
+  .np-shelf-tape .tape { box-shadow: 0 12px 20px rgba(0,0,0,.5); transition: transform .15s; } /* filter 그림자는 스크롤 중 매번 다시 그려 끊긴다 */
   .np-shelf-tape:active .tape { transform: translateY(6px) scale(.98); }
   .np-well {
     width: min(98%, calc((100dvh - 400px) * 1.6)); margin-top: 8px;
@@ -515,3 +543,95 @@
   flex: none; font-style: normal; font-family: "Courier New", ui-monospace, monospace;
   font-size: 3.2cqw; font-weight: 700; color: #8a7560; font-variant-numeric: tabular-nums; letter-spacing: 0;
 }
+
+/* ───────── 테이프 상자: 위가 열린 종이 상자에 테이프가 꽂혀 있다 ───────── */
+.tbox { position: relative; aspect-ratio: 1.6; container-type: inline-size; cursor: pointer; outline: none; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+.tape-grid .tbox:hover, .tbox:focus-visible { transform: translateY(-4px); }
+.tbox:focus-visible .tbox-front { box-shadow: 0 0 0 2px var(--accent), 0 8px 14px rgba(0,0,0,.45); }
+/* 상자 안쪽 뒷벽 */
+.tbox-back {
+  position: absolute; left: 7cqw; right: 7cqw; top: 13cqw; height: 14cqw; border-radius: .8cqw .8cqw 0 0;
+  background: linear-gradient(180deg, #8a6038, #5e3f22);
+  box-shadow: inset 0 .5cqw 0 rgba(255,225,180,.18);
+}
+/* 꽂힌 테이프들의 등 */
+.tbox-spines {
+  position: absolute; z-index: 1; left: 11cqw; right: 11cqw; top: 4cqw; height: 24cqw;
+  display: flex; align-items: flex-end; justify-content: center; gap: .9cqw;
+}
+.tbox-spine {
+  position: relative; flex: 0 1 8.4cqw; height: calc(15cqw + var(--lift, 0) * 1.5cqw); border-radius: .7cqw .7cqw 0 0;
+  background: linear-gradient(90deg, #2c2926 0 14%, hsl(var(--h) 40% 46%) 14% 86%, #2c2926 86%);
+  box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.16), 0 0 0 .2cqw rgba(0,0,0,.35);
+  transform: rotate(-1.6deg); transition: transform .22s cubic-bezier(.2,.8,.2,1);
+}
+.tbox-spine:nth-child(even) { transform: rotate(1.3deg); }
+.tbox-spine:nth-child(3n) { transform: rotate(-.4deg); }
+.tbox-spine::before { /* 등에 붙인 종이 라벨 */
+  content: ""; position: absolute; left: 22%; right: 22%; top: 1.8cqw; height: 6cqw; border-radius: .3cqw;
+  background: repeating-linear-gradient(transparent 0 1.2cqw, rgba(70,55,35,.25) 1.2cqw 1.4cqw), rgba(238,229,210,.92);
+}
+.tape-grid .tbox:hover .tbox-spine { transform: translateY(-1.6cqw) rotate(0); }
+.tape-grid .tbox:hover .tbox-spine:nth-child(2n) { transition-delay: .03s; }
+.tbox-spine.up { transform: translateY(-3.4cqw) rotate(0) !important; box-shadow: inset 0 .35cqw 0 rgba(255,255,255,.16), 0 0 2.4cqw hsl(var(--h) 70% 60% / .55); }
+/* 바깥으로 젖혀진 날개 */
+.tbox-flap { position: absolute; z-index: 0; top: 17cqw; width: 14cqw; height: 10cqw; background: linear-gradient(180deg, #d6aa72, #b88651); }
+.tbox-flap.l { left: 0; clip-path: polygon(0 0, 56% 0, 100% 100%, 43% 100%); }
+.tbox-flap.r { right: 0; clip-path: polygon(44% 0, 100% 0, 57% 100%, 0 100%); }
+/* 앞면: 크라프트 골판지 */
+.tbox-front {
+  position: absolute; z-index: 2; left: 6cqw; right: 6cqw; top: 26cqw; bottom: 0; border-radius: .4cqw .4cqw 1.2cqw 1.2cqw;
+  background:
+    repeating-linear-gradient(90deg, rgba(90,55,20,.05) 0 .5cqw, transparent .5cqw 1.6cqw),
+    linear-gradient(180deg, rgba(255,235,200,.22), rgba(255,235,200,0) 14%),
+    linear-gradient(180deg, #c99a63, #ab7b48);
+  box-shadow: inset 0 .45cqw 0 rgba(255,236,205,.35), inset 0 -.6cqw 1.4cqw rgba(70,40,15,.3), 0 8px 14px rgba(0,0,0,.45);
+}
+.tbox-hold { position: absolute; top: 3.4cqw; left: 50%; width: 15cqw; height: 3.2cqw; transform: translateX(-50%); border-radius: 2cqw; background: #3a2817; box-shadow: inset 0 .5cqw .6cqw rgba(0,0,0,.6), 0 .25cqw 0 rgba(255,236,205,.3); }
+.tbox-label {
+  position: absolute; top: 10cqw; left: 50%; max-width: 76%; padding: .6cqw 4.2cqw .1cqw;
+  transform: translateX(-50%) rotate(var(--tilt, 0deg)); filter: drop-shadow(0 .3cqw .35cqw rgba(0,0,0,.3));
+}
+.tbox-label::before {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, rgba(120,100,60,.06) 0 1px, transparent 1px 3px), linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,0) 45%), rgba(236,226,198,.95);
+  clip-path: polygon(0 0, 100% 0, 98.6% 14%, 100% 30%, 98.9% 47%, 100% 63%, 98.5% 80%, 100% 100%, 0 100%, 1.3% 85%, 0 67%, 1.1% 50%, 0 34%, 1.4% 17%);
+}
+.tbox-label span {
+  position: relative; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: "Nanum Pen Script", var(--font); font-size: 8.6cqw; line-height: 1.12; color: #1f2d4d;
+}
+.tbox-stamp {
+  position: absolute; right: 4cqw; bottom: 3cqw; padding: .25cqw 1.3cqw; transform: rotate(-4deg);
+  border: .35cqw solid rgba(128,42,30,.62); border-radius: .5cqw; color: rgba(128,42,30,.72);
+  font-family: "Courier New", ui-monospace, monospace; font-size: 3.1cqw; font-weight: 700; letter-spacing: .12em;
+}
+.tbox.empty .tbox-back { background: linear-gradient(180deg, #7a5532, #4f341b); }
+.hero-tape .tbox { filter: drop-shadow(0 18px 34px rgba(0,0,0,.45)); }
+
+/* 나의 테이프: 상자 줄과 테이프 줄 제목 */
+.grid-head { margin: 18px 0 12px; }
+.grid-head h2 { font-size: 19px; }
+.head-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.kicker-box { display: inline-flex; align-items: center; gap: 4px; color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,.3); }
+.kicker-box .ic { width: 14px; height: 14px; }
+.kicker-box:hover { color: var(--text); }
+/* 상자에 담을 테이프 고르기 */
+.pick-tape.on .tape { box-shadow: 0 0 0 3px var(--accent), 0 8px 14px rgba(0,0,0,.45); }
+.pick-tape .already.other { background: #4a4038; color: var(--text-2); max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* PC 마우스: 가로 줄에 스냅을 걸지 않는다 (휠로 옮길 때 테이프 경계로 끌려가 뚝뚝 끊겨 보였다). 터치 화면은 그대로 */
+@media (hover: hover) and (pointer: fine) {
+  .tape-row, .lp-row, .np-shelf { scroll-snap-type: none; }
+}
+
+/* 테이프를 끌어다 상자에 넣기 */
+.tape-ghost { position: fixed; left: 0; top: 0; z-index: 60; margin: 0; pointer-events: none; opacity: .95; box-shadow: 0 20px 34px rgba(0,0,0,.6); will-change: transform; }
+.tape.drag-src { opacity: .3; transform: none !important; }
+.tape.lifted { transform: scale(1.05) !important; box-shadow: 0 16px 28px rgba(0,0,0,.6); }
+body.tape-dragging, body.tape-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+body.tape-dragging .tbox[data-box] .tbox-front { box-shadow: 0 0 0 2px rgba(232,178,90,.35), 0 8px 14px rgba(0,0,0,.45); }
+.tbox.drop-over { transform: translateY(-6px) scale(1.04); }
+body.tape-dragging .tbox.drop-over .tbox-front { box-shadow: 0 0 0 3px var(--accent), 0 14px 24px rgba(0,0,0,.55); }
+.tbox.drop-over .tbox-spine { transform: translateY(-2.4cqw) rotate(0); }
+.tape-grid .tape[data-pl] { -webkit-touch-callout: none; }

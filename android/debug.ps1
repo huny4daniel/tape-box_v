@@ -1,8 +1,9 @@
-# 폰에 디버그 빌드를 깔고 실행한 뒤 로그를 본다.
+﻿# 폰에 디버그 빌드를 깔고 실행한 뒤 로그를 본다.
 #   .\debug.ps1            빌드 → 설치 → 실행 → 로그
 #   .\debug.ps1 -NoBuild   이미 만든 APK로 설치부터
 #   .\debug.ps1 -LogOnly   로그만 다시 보기
 # 웹 화면은 PC 크롬에서 chrome://inspect 를 열면 'WebView in ...debug' 항목으로 들여다볼 수 있다.
+# 화면 파일을 실시간으로 고치며 볼 때는 저장소 루트의 dev.bat (빌드·설치도 알아서 한다)
 param([switch]$NoBuild, [switch]$LogOnly)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -37,6 +38,9 @@ if (-not $LogOnly -and -not $NoBuild) {
 
 $devices = & $adb devices | Select-Object -Skip 1 | Where-Object { $_ -match '\tdevice$' }
 if (-not $devices) { throw "연결된 폰이 없어요. USB 디버깅을 켜고 연결하거나, 무선 디버깅이면 먼저: $adb pair <IP:포트> → $adb connect <IP:포트>" }
+# 같은 폰이 무선 디버깅 주소와 mDNS 이름으로 두 번 잡히면 adb가 기기를 못 고르니 첫 번째로
+if (-not $env:ANDROID_SERIAL) { $env:ANDROID_SERIAL = (($devices | Select-Object -First 1) -split "\t")[0] }
+& $adb reverse tcp:8655 tcp:8655 | Out-Null   # 디버그 앱이 PC 개발 서버(dev.bat)의 화면 파일을 받도록
 
 $pkg = "io.github.huny4daniel.musiccollection.debug"
 if (-not $LogOnly) {
