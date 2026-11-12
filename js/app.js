@@ -233,23 +233,37 @@
   view.addEventListener("scroll", onScroll, { passive: true });
   // 가로 줄(data-hscroll): PC 마우스 휠을 가로 스크롤로. 끝에 닿으면 페이지가 그대로 내려간다
   // (홈·나의 테이프·검색의 테이프 줄, 재생 화면의 테이프 선반 등 화면 어디든)
-  // 세로로 페이지를 내리던 중에 가로 줄이 마우스 밑으로 지나가면 그 줄이 휠을 가로채지 않게:
-  // 페이지를 굴린 뒤로는 마우스를 직접 움직였거나(가로 줄 위로 옮겨 온 것) 잠깐(1초) 멈춘 뒤에만 가로로 넘긴다
-  const PW = { at: 0, x: 0, y: 0, moved: true };
-  document.addEventListener("mousemove", (e) => {
-    if (!PW.moved && Math.hypot(e.clientX - PW.x, e.clientY - PW.y) > 8) PW.moved = true;
-  }, { passive: true });
-  document.addEventListener("wheel", (e) => {
-    const row = e.target.closest("[data-hscroll]");
-    const inPage = view.contains(e.target);
-    const pageWheel = () => { if (inPage) { PW.at = Date.now(); PW.x = e.clientX; PW.y = e.clientY; PW.moved = false; } };
-    if (!row || e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) { pageWheel(); return; }
-    const max = row.scrollWidth - row.clientWidth;
-    if (max <= 0 || (e.deltaY < 0 && row.scrollLeft <= 0) || (e.deltaY > 0 && row.scrollLeft >= max - 1)) { pageWheel(); return; }
-    if (inPage && !PW.moved && Date.now() - PW.at < 1000) { pageWheel(); return; } // 세로 스크롤을 이어 가는 중
-    e.preventDefault();
-    hScroll(row, e.deltaY * (e.deltaMode === 1 ? 32 : 1));
-  }, { passive: false });
+  // 가로 줄(data-hscroll): 휠·끌기로 옆으로 넘기지 않고, 양옆의 반투명 화살표로 넘긴다 (폰은 손가락으로 밀어 넘기기도 된다).
+  // 화살표는 한 줄을 통째로가 아니라 보이는 폭의 60%쯤씩. 맨 앞·맨 끝이면 그쪽 화살표는 숨긴다.
+  // 줄을 그리는 곳이 여러 군데라, 화면에 새로 생기는 가로 줄을 지켜보다가 화살표를 붙인다
+  function hsDecorate(row) {
+    if (row.__hs) return; row.__hs = true;
+    const wrap = document.createElement("div"); wrap.className = "hs-wrap";
+    row.parentNode.insertBefore(wrap, row); wrap.appendChild(row);
+    const mk = (dir) => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "hs-btn " + dir; b.hidden = true;
+      b.setAttribute("aria-label", dir === "l" ? "앞으로 넘기기" : "뒤로 넘기기"); b.innerHTML = '<i class="ic ic-left"></i>';
+      b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); hScroll(row, (dir === "l" ? -1 : 1) * Math.max(160, Math.round(row.clientWidth * 0.6))); });
+      wrap.appendChild(b); return b;
+    };
+    const L = mk("l"), R = mk("r");
+    const update = () => {
+      const max = row.scrollWidth - row.clientWidth, on = max > 4 && row.offsetWidth > 0;
+      const st = HS.get(row), x = st && st.raf ? st.target : row.scrollLeft; // 넘어가는 중이면 도착할 자리 기준
+      L.hidden = !on || x <= 2; R.hidden = !on || x >= max - 2;
+      if (!on) return;
+      const top = row.offsetTop + row.offsetHeight / 2;
+      L.style.top = R.style.top = top + "px";
+      L.style.left = row.offsetLeft + 10 + "px"; R.style.left = row.offsetLeft + row.offsetWidth - 10 - 38 + "px";
+    };
+    row.__hsUpdate = update;
+    row.addEventListener("scroll", update, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(update).observe(row);
+    new MutationObserver(update).observe(row, { childList: true });
+    update();
+  }
+  const hsScan = () => $$("[data-hscroll]").forEach(hsDecorate);
+  new MutationObserver(() => { if (!hsScan.raf) hsScan.raf = requestAnimationFrame(() => { hsScan.raf = 0; hsScan(); }); }).observe(document.body, { childList: true, subtree: true });
   // 휠 한 칸에 뚝 끊어 옮기지 않고, 목표 위치를 향해 미끄러지듯 따라간다 (연달아 굴리면 목표가 쌓인다)
   const HS = new WeakMap();
   function hScroll(row, dx) {
@@ -258,6 +272,7 @@
     if (!st.raf) st.pos = st.target = row.scrollLeft;
     const max = row.scrollWidth - row.clientWidth;
     st.target = Math.max(0, Math.min(max, st.target + dx));
+    if (row.__hsUpdate) row.__hsUpdate();
     if (st.raf) return;
     const step = () => {
       const d = st.target - st.pos;
