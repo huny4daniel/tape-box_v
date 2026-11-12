@@ -25,6 +25,7 @@
     lyrics: (id) => req("GET", "/api/lyrics/" + encodeURIComponent(id)),
     revertLyrics: (id) => req("DELETE", "/api/lyrics/" + encodeURIComponent(id) + "?reject=1"),
     setTrack: (id, patch) => req("POST", "/api/track/" + encodeURIComponent(id), patch),
+    resetRecords: (what) => req("POST", "/api/reset-records", what), // { plays, favs, history }
     reportPlay: (id, listenedMs, counted) => req("POST", "/api/plays", { id, listenedMs: Math.round(listenedMs), counted: !!counted }),
     playlists: () => req("GET", "/api/playlists"),
     createPlaylist: (name, items) => req("POST", "/api/playlists", { name, items: items || [] }),

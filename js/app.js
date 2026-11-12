@@ -1103,6 +1103,7 @@
     return `<div class="page"><h2 style="font-size:30px;margin:8px 0 0">설정 · 연결</h2>
       ${conn}
       ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·테이프를 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
+      <div class="set-card"><div class="set-row"><div><h3>기록 초기화</h3><p>들은 횟수, 아끼는 곡 표시, 최근 들은 기록 중 고른 것을 지워요. 수집 번호·메모·테이프·상자는 그대로 남아요.</p></div><button class="btn" data-act="reset-records">초기화…</button></div></div>
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
       ${N ? playlistDirCard(N) : ""}
       <div class="set-card" id="folder-card">${folderCard()}</div>
@@ -1894,7 +1895,7 @@
   function openModal(html, cls) {
     modal.innerHTML = `<div class="modal-box${cls ? " " + cls : ""}">${html}</div>`; modal.hidden = false;
     const f = $("input,textarea", modal);
-    if (f) setTimeout(() => { f.focus(); if (f.setSelectionRange) f.setSelectionRange(f.value.length, f.value.length); }, 30);
+    if (f) setTimeout(() => { f.focus(); if (f.setSelectionRange && /^(text|search|url|tel|password|)$/.test(f.type || "")) f.setSelectionRange(f.value.length, f.value.length); }, 30); // 체크상자 등은 글자 선택이 없다
   }
   function closeModal() { modal.hidden = true; modal.innerHTML = ""; }
   modal.addEventListener("click", (e) => { if (e.target === modal || e.target.closest("[data-close]")) closeModal(); });
@@ -1964,6 +1965,29 @@
       if (!add.length) { toast("이미 담겨 있어요"); return; }
       savePlaylist(p, { items: p.items.concat(add) });
       toast(`「${p.name}」에 담았어요`);
+    });
+  }
+  // 설정 → 기록 초기화: 고른 것만 지운다. 되돌릴 수 없으니 한 번 더 묻는다
+  function resetRecordsModal() {
+    const opt = (k, title, desc) => `<label class="reset-opt"><input type="checkbox" name="${k}"><span><b>${title}</b><small>${desc}</small></span></label>`;
+    openModal(`<h3>어떤 기록을 지울까요?</h3><form id="reset-form">
+      ${opt("plays", "들은 횟수", "곡마다 들은 횟수와 함께한 시간")}
+      ${opt("favs", "아끼는 곡 표시", "하트를 누른 곡이 모두 풀려요 (곡은 그대로)")}
+      ${opt("history", "최근 들은 기록", "처음·마지막으로 들은 날, 최근 들은 테이프")}
+      <p class="dimmer" style="font-size:12.5px;margin:12px 0 0">지운 기록은 되돌릴 수 없어요.</p>
+      <div class="row-btns"><button type="button" class="btn ghost" data-close>취소</button><button class="btn primary" id="reset-ok" disabled style="background:#e06464;color:#fff">초기화하기</button></div></form>`);
+    const form = $("#reset-form"), ok = $("#reset-ok");
+    form.addEventListener("change", () => { ok.disabled = !$$("input:checked", form).length; });
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const what = { plays: form.plays.checked, favs: form.favs.checked, history: form.history.checked };
+      if (!what.plays && !what.favs && !what.history) return;
+      closeModal();
+      API.resetRecords(what).then(() => {
+        if (what.history) { try { localStorage.removeItem("mc.tapePlayed"); } catch (err) {} for (const k in tempPlayed) delete tempPlayed[k]; }
+        toast("기록을 초기화했어요");
+        return reloadLibrary().then(() => renderSidebar());
+      }).catch((err) => toast("초기화하지 못했어요: " + err.message));
     });
   }
   function deletePlaylist(p) {
@@ -2137,6 +2161,7 @@
           if (a.closest(".np-tape-wrap") && isMobile()) { setMemo(true); return; } // 폰: 카세트를 누르면 가사 메모지 (PC는 옆 패널의 가사 탭)
           P.toggle(); return;
         case "insert-tape": insertTape(a.dataset.pl); return;
+        case "reset-records": resetRecordsModal(); return;
         case "home-now": if (!P.current) { npEjected = true; lastTapeId = lastBoxId = null; } openFull(); return; // 비어 있으면 꽂을 테이프 고르기
         case "side-box": sideBox = a.dataset.bx; renderSidebar(); $("#side-playlists").scrollTop = 0; return;
         case "side-out": sideBox = null; renderSidebar(); return;

@@ -112,6 +112,15 @@ public class Db extends SQLiteOpenHelper {
                 new Object[]{Math.max(0, listenedMs), counted ? 1 : 0, counted ? 1 : 0, now, counted ? 1 : 0, now, key});
     }
 
+    /** 설정 → 기록 초기화: 고른 것만 지운다 (수집 번호·메모·테이프·상자는 그대로) */
+    public synchronized void resetRecords(boolean plays, boolean favs, boolean history) {
+        ContentValues v = new ContentValues();
+        if (plays) { v.put("plays", 0); v.put("listened_ms", 0); }
+        if (favs) { v.put("fav", 0); v.put("fav_at", 0); }
+        if (history) { v.put("first_played", 0); v.put("last_played", 0); }
+        if (v.size() > 0) getWritableDatabase().update("meta", v, null, null);
+    }
+
     public synchronized void setFav(String key, boolean fav) {
         ContentValues v = new ContentValues();
         v.put("fav", fav ? 1 : 0); v.put("fav_at", fav ? System.currentTimeMillis() : 0);

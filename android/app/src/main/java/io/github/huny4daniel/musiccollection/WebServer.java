@@ -198,6 +198,12 @@ public class WebServer extends NanoHTTPD {
                 app.db.recordPlay(id, b.optLong("listenedMs", 0), b.optBoolean("counted", false));
                 return ok();
             }
+            case "reset-records": { // 설정 → 기록 초기화 (들은 횟수 · 아끼는 곡 · 최근 들은 기록 중 고른 것)
+                if (m != Method.POST) break;
+                JSONObject b = body(s);
+                app.db.resetRecords(b.optBoolean("plays"), b.optBoolean("favs"), b.optBoolean("history"));
+                return ok();
+            }
             case "track": {
                 JSONObject b = body(s);
                 if (b.has("fav")) app.db.setFav(arg, b.getBoolean("fav"));

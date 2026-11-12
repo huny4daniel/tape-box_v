@@ -840,3 +840,10 @@ body.selecting #toast { bottom: calc(var(--bar-h) + 96px); }
   body.selecting #toast { bottom: calc(var(--tab-h) + 150px); }
   body.selecting .page { padding-bottom: 150px; }
 }
+
+/* 설정 → 기록 초기화 창의 고르기 */
+.reset-opt { display: flex; align-items: flex-start; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.reset-opt input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+.reset-opt b { display: block; font-size: 15px; }
+.reset-opt small { color: var(--text-3); font-size: 12.5px; }
+#reset-ok:disabled { opacity: .45; cursor: default; }

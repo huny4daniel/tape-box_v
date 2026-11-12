@@ -220,8 +220,8 @@
 .np-meta .icon-btn { width: 44px; height: 44px; }
 .np-meta .icon-btn .ic { width: 26px; height: 26px; }
 /* 재생 화면 음량 (PC만): 제목·가수 줄 오른쪽 끝 */
-.np-vol { flex: none; display: flex; align-items: center; gap: 8px; color: var(--text-2); }
-.np-vol .range { flex: none; width: 41px; } /* 막대는 짧게 (예전 약 122px의 3분의 1) */
+.np-meta > .np-vol { flex: none; display: flex; align-items: center; gap: 8px; color: var(--text-2); } /* 제목 칸(.np-meta > div)처럼 늘어나지 않고 오른쪽 끝에 붙는다 */
+.np-vol .range { flex: none; width: 62px; }
 .np-vol .ic { width: 20px; height: 20px; flex: none; }
 @media (max-width: 820px) { .np-vol { display: none; } }
 .np-no { margin-top: 8px; font-size: 12px; color: var(--text-3); font-weight: 700; font-variant-numeric: tabular-nums; }
