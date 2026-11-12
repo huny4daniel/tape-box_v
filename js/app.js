@@ -1028,7 +1028,7 @@
       ${!T.length ? `<div class="empty" style="padding:24px"><b>아직 빈 상자예요</b>아래 「테이프 추가하기」로 골라 넣거나, 테이프를 꾹 눌러(오른쪽 클릭) 「상자에 넣기」를 써 보세요.</div>
         <div class="tape-grid"><button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`
         : boxEdit ? `<div class="tape-grid editing" data-box-edit="${esc(b.id)}">${T.map((pl, i) => `<div class="tape-edit" data-i="${i}" data-pl-edit="${esc(pl.id)}">${tapeItem(pl)}<span class="tape-grip" data-handle title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span><button class="tape-x" data-act="box-remove" data-pl="${esc(pl.id)}" title="상자에서 빼기"><i class="ic ic-x"></i></button></div>`).join("")}<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`
-        : `<div class="tape-grid">${T.map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist" data-into="${esc(b.id)}"><i class="ic ic-plus"></i><span>새 테이프 만들어 넣기</span></button></div>`}
+        : `<div class="tape-grid">${T.map(tapeItem).join("")}<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`}
     </div>`;
   };
   pages.box.after = (id) => { if (boxEdit) enableBoxDrag(id); };
@@ -1944,10 +1944,17 @@
     });
   }
   // 테이프 고르기 팝업 위 검색창: 테이프 이름이 맞는 것 먼저, 그다음 담긴 곡의 제목·가수가 맞는 것 (초성도). tail은 검색어가 없을 때만 끝에 붙인다
-  function bindPickSearch(input, grid, list, cell, tail) {
+  // group(pl): 묶음 번호 (0이 먼저). groupLabel[n]: n번 묶음 앞 구분선 글자
+  function pickHtml(items, cell, group, groupLabel) {
+    if (!group) return items.map(cell).join("");
+    const G = [];
+    for (const pl of items) (G[group(pl)] = G[group(pl)] || []).push(pl);
+    return G.map((arr, n) => arr && arr.length ? (n && G.slice(0, n).some((x) => x && x.length) ? `<div class="pick-divider"><span>${esc(groupLabel[n] || "")}</span></div>` : "") + arr.map(cell).join("") : "").join("");
+  }
+  function bindPickSearch(input, grid, list, cell, tail, group, groupLabel) {
     const draw = () => {
       const raw = input.value.trim(), q = U.norm(raw), cho = U.isChoQuery(raw);
-      if (!q) { grid.innerHTML = list.map(cell).join("") + (tail || ""); return; }
+      if (!q) { grid.innerHTML = pickHtml(list, cell, group, groupLabel) + (tail || ""); return; }
       const byName = [], bySong = [];
       list.forEach((pl) => {
         const n = U.norm(pl.name);
@@ -1955,7 +1962,7 @@
         else if (pl.items.some((id) => { const t = L.byId.get(id); return t && (cho ? t._cho.includes(q) : t._q.includes(q)); })) bySong.push(pl);
       });
       const found = byName.concat(bySong);
-      grid.innerHTML = found.length ? found.map(cell).join("") : '<p class="dimmer pick-empty">찾는 테이프가 없어요</p>';
+      grid.innerHTML = found.length ? pickHtml(found, cell, group, groupLabel) : '<p class="dimmer pick-empty">찾는 테이프가 없어요</p>';
     };
     input.addEventListener("input", draw);
     return draw;
@@ -2091,16 +2098,17 @@
   // 상자 편집 → 「테이프 추가하기」: 이 상자에 없는 테이프를 골라 넣는다. 다른 상자의 테이프는 이 상자로 옮겨 온다
   function addTapesModal(b) {
     const pick = new Set();
-    const T = sortedTapes().filter((pl) => !b.items.includes(pl.id));
+    const T = sortedTapes().filter((pl) => !b.items.includes(pl.id)); // 이 상자에 이미 든 테이프는 보이지 않는다
+    const inOther = (pl) => (boxOf(pl.id) ? 1 : 0), LABEL = ["", "다른 상자에 든 테이프"]; // 상자 밖 먼저, 다른 상자에 든 건 구분선 뒤에
     if (!T.length) { toast("더 넣을 테이프가 없어요"); return; }
     const badge = (pl) => { if (pick.has(pl.id)) return '<span class="already">고름</span>'; const o = boxOf(pl.id); return o ? `<span class="already other">${esc(o.name)}</span>` : ""; };
     const cell = (pl) => `<div class="pick-tape${pick.has(pl.id) ? " on" : ""}" role="button" tabindex="0" data-pl="${esc(pl.id)}">${cassette(pl, bandTrack(pl), { noHeart: true })}${badge(pl)}</div>`;
     openModal(`<h3>「${esc(b.name)}」에 넣을 테이프</h3><p class="dimmer" style="margin:-8px 0 12px;font-size:13px">눌러서 고르고 「넣기」. 다른 상자의 테이프를 고르면 이 상자로 옮겨 와요</p>
       <label class="search-box pick-search"><i class="ic ic-search"></i><input type="search" placeholder="테이프 이름이나 곡으로 찾기" autocomplete="off" spellcheck="false"></label>
-      <div class="pick-tapes">${T.map(cell).join("")}</div>
+      <div class="pick-tapes">${pickHtml(T, cell, inOther, LABEL)}</div>
       <div class="row-btns"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="box-add-ok">넣기</button></div>`, "wide");
     const grid = $(".pick-tapes", modal);
-    bindPickSearch($(".pick-search input", modal), grid, T, cell); // 찾는 동안에도 고른 것은 그대로 남는다
+    bindPickSearch($(".pick-search input", modal), grid, T, cell, "", inOther, LABEL); // 찾는 동안에도 고른 것은 그대로 남는다
     grid.addEventListener("keydown", (e) => { const t = e.target.closest(".pick-tape"); if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); t.click(); } });
     grid.addEventListener("click", (e) => {
       const t = e.target.closest(".pick-tape[data-pl]"); if (!t) return;

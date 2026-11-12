@@ -541,7 +541,10 @@
   box-shadow: 0 2px 6px rgba(0,0,0,.45);
 }
 .pick-tapes .tape-new { width: 100%; }
-@media (max-width: 480px) { .pick-tapes { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .pick-tapes { gap: 12px 10px; } } /* 폰도 2열 */
+/* 테이프 고르기: 상자 밖 테이프와 다른 상자에 든 테이프 사이 구분선 */
+.pick-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; color: var(--text-3); font-size: 12.5px; font-weight: 700; }
+.pick-divider::before, .pick-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
 /* 띠 앞의 곡 순서 (#3) */
 .tb-no {
