@@ -184,7 +184,8 @@ public class Db extends SQLiteOpenHelper {
      * (디버그 빌드) 원래 앱의 곡 기록·재생목록으로 통째로 바꾼다. tracks는 /api/library 의 tracks, playlists는 /api/playlists 모양.
      * 수집 번호까지 그대로 옮기고, 원래 앱에 없던 곡은 다음 스캔 때 뒤에 번호를 받는다.
      */
-    public synchronized void replaceFromRelease(JSONArray tracks, JSONArray playlists) throws JSONException {
+    /** (디버그 빌드) 원래 앱의 곡 기록·테이프·상자로 바꾼다. boxes가 null이면(상자 기능이 없는 옛 원래 앱) 상자는 그대로 둔다 */
+    public synchronized void replaceFromRelease(JSONArray tracks, JSONArray playlists, JSONArray boxes) throws JSONException {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {
@@ -208,6 +209,17 @@ public class Db extends SQLiteOpenHelper {
                 v.put("created", p.optLong("created", 0)); v.put("updated", p.optLong("updated", 0));
                 v.put("items", p.optJSONArray("items") == null ? "[]" : p.getJSONArray("items").toString());
                 db.insertWithOnConflict("playlists", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+            }
+            if (boxes != null) { // 상자는 테이프 id로 묶여 있고, 테이프 id를 그대로 가져왔으니 그대로 맞는다
+                db.delete("boxes", null, null);
+                for (int i = 0; i < boxes.length(); i++) {
+                    JSONObject b = boxes.getJSONObject(i);
+                    ContentValues v = new ContentValues();
+                    v.put("id", b.getString("id")); v.put("name", b.optString("name", ""));
+                    v.put("created", b.optLong("created", 0)); v.put("updated", b.optLong("updated", 0));
+                    v.put("items", b.optJSONArray("items") == null ? "[]" : b.getJSONArray("items").toString());
+                    db.insertWithOnConflict("boxes", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+                }
             }
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
@@ -263,6 +275,30 @@ public class Db extends SQLiteOpenHelper {
      * 다른 플레이어에서 가져온 재생목록을 맞춘다. 처음 보면 만들고, 이후엔 이 앱에서 고치지 않은 동안만 원본을 따라간다.
      * 이 앱에서 지운 재생목록은 다시 만들지 않는다. 바뀐 게 있으면 true.
      */
+    /** 가져온 테이프를 그 이름의 상자에 넣는다 (없으면 만든다). 다른 상자에 있었으면 거기서 뺀다 */
+    public synchronized void putInBoxByName(String plId, String boxName) throws JSONException {
+        JSONArray all = boxes();
+        JSONObject target = null;
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject b = all.getJSONObject(i);
+            if (target == null && b.optString("name").equals(boxName)) { target = b; continue; }
+            JSONArray its = b.getJSONArray("items"), keep = new JSONArray();
+            boolean had = false;
+            for (int k = 0; k < its.length(); k++) { if (plId.equals(its.optString(k))) had = true; else keep.put(its.get(k)); }
+            if (had) updateBox(b.getString("id"), new JSONObject().put("items", keep));
+        }
+        if (target == null) { createBox(boxName, new JSONArray().put(plId)); return; }
+        JSONArray its = target.getJSONArray("items");
+        for (int k = 0; k < its.length(); k++) if (plId.equals(its.optString(k))) return;
+        its.put(plId);
+        updateBox(target.getString("id"), new JSONObject().put("items", its));
+    }
+
+    /** 가져온 원본(sourceKey)의 테이프 id, 아직 안 가져왔으면 null */
+    public synchronized String importedPlaylistId(String sourceKey) {
+        try { String rec = get("import:" + sourceKey, null); return rec == null ? null : new JSONObject(rec).getString("id"); } catch (Exception e) { return null; }
+    }
+
     public synchronized boolean syncImportedPlaylist(String sourceKey, String name, List<String> items) throws JSONException {
         String k = "import:" + sourceKey;
         String rec = get(k, null);

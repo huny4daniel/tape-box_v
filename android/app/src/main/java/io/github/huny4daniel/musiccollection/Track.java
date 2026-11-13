@@ -11,6 +11,7 @@ public class Track {
     public String title, artist, albumArtist, album, albumKey, genre, mime;
     public int year, track, disc;
     public long duration, addedAt, size;
+    public String path;        // 파일 경로 (테이프를 .m3u8로 저장할 때)
 
     public Uri uri() {
         return ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId);

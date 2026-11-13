@@ -876,3 +876,6 @@ body.selecting #toast { bottom: calc(var(--bar-h) + 96px); }
   .hs-btn { width: 32px; height: 32px; margin-top: -16px; }
   .hs-btn .ic { width: 17px; height: 17px; }
 }
+
+/* 설정 카드 오른쪽 버튼: 설명이 길어도 버튼 글자가 세로로 쪼개지지 않게 */
+.set-row > .btn { flex: none; white-space: nowrap; }

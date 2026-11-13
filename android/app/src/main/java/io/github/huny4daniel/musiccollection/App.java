@@ -49,6 +49,7 @@ public class App extends Application {
     public void rescan(Runnable done) {
         io.execute(() -> {
             library.scan();
+            PlaylistExport.schedule(this); // 가져온 테이프·곡 경로가 바뀌었을 수 있다
             emit("{\"type\":\"library\"}");
             if (done != null) main.post(done);
         });

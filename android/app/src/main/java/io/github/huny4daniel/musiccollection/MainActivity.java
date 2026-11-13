@@ -60,6 +60,24 @@ public class MainActivity extends ComponentActivity {
         app.rescan(null);
     });
 
+    /** 테이프 저장 폴더 고르기 (내가 만든 테이프를 .m3u8로 저장하고 고칠 권한을 받는다) */
+    private final ActivityResultLauncher<Uri> pickExportDir = registerForActivityResult(new ActivityResultContracts.OpenDocumentTree(), uri -> {
+        if (uri == null) return;
+        try {
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception e) { android.util.Log.w("Main", "persist export", e); }
+        String old = app.db.get(PlaylistExport.K_DIR, "");
+        if (!old.isEmpty() && !old.equals(uri.toString())) releaseExportDir(old);
+        if (!old.equals(uri.toString())) app.db.put(PlaylistExport.K_MAP, "{}"); // 새 폴더에는 처음부터 다시 쓴다 (옛 폴더의 파일은 그대로 둔다)
+        app.db.put(PlaylistExport.K_DIR, uri.toString());
+        PlaylistExport.saveSoon(app);
+        app.emit("{\"type\":\"exportdir\"}");
+    });
+
+    private void releaseExportDir(String u) {
+        try { getContentResolver().releasePersistableUriPermission(Uri.parse(u), Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION); } catch (Exception ignored) {}
+    }
+
     private void releaseDir(String u) {
         try { getContentResolver().releasePersistableUriPermission(Uri.parse(u), Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
     }
@@ -302,6 +320,25 @@ public class MainActivity extends ComponentActivity {
             } catch (Exception e) { return "?"; }
         }
         @JavascriptInterface public void pickPlaylistDir() { runOnUiThread(() -> pickDir.launch(null)); }
+        /** 테이프 저장 폴더의 표시 이름, 없으면 "" */
+        @JavascriptInterface public String getExportDir() {
+            String u = app.db.get(PlaylistExport.K_DIR, "");
+            if (u.isEmpty()) return "";
+            try {
+                String id = DocumentsContract.getTreeDocumentId(Uri.parse(u));
+                int i = id.indexOf(':');
+                String p = i >= 0 ? id.substring(i + 1) : id;
+                return p.isEmpty() ? "저장공간 최상위" : p;
+            } catch (Exception e) { return "?"; }
+        }
+        @JavascriptInterface public void pickExportDir() { runOnUiThread(() -> pickExportDir.launch(null)); }
+        @JavascriptInterface public void clearExportDir() { // 저장을 멈춘다 (이미 만든 파일은 그대로 남는다)
+            String u = app.db.get(PlaylistExport.K_DIR, "");
+            if (!u.isEmpty()) { releaseExportDir(u); app.db.put(PlaylistExport.K_DIR, ""); app.db.put(PlaylistExport.K_MAP, "{}"); }
+        }
+        @JavascriptInterface public void exportNow() { PlaylistExport.saveSoon(app); }
+        @JavascriptInterface public boolean getExportAuto() { return PlaylistExport.auto(app.db); }
+        @JavascriptInterface public void setExportAuto(boolean on) { app.db.put(PlaylistExport.K_AUTO, on ? "1" : "0"); if (on) PlaylistExport.saveSoon(app); } // 다시 켜면 그동안 바뀐 것을 한 번 맞춘다
         @JavascriptInterface public void clearPlaylistDir() {
             String u = app.db.get(PlaylistImport.K_DIR, "");
             if (!u.isEmpty()) { releaseDir(u); app.db.put(PlaylistImport.K_DIR, ""); }

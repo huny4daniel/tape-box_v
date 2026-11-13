@@ -214,29 +214,35 @@ public class WebServer extends NanoHTTPD {
                 if (arg == null && m == Method.GET) return json(Response.Status.OK, app.db.playlists().toString());
                 if (arg == null && m == Method.POST) {
                     JSONObject b = body(s);
-                    return json(Response.Status.OK, app.db.createPlaylist(b.optString("name", "새 재생목록"), b.optJSONArray("items")).toString());
+                    JSONObject made = app.db.createPlaylist(b.optString("name", "새 재생목록"), b.optJSONArray("items"));
+                    PlaylistExport.schedule(app); // 저장 폴더에도
+                    return json(Response.Status.OK, made.toString());
                 }
                 if (arg != null && m == Method.PUT) {
                     JSONObject p = app.db.updatePlaylist(arg, body(s));
+                    PlaylistExport.schedule(app);
                     return p == null ? json(Response.Status.NOT_FOUND, "{\"error\":\"not found\"}") : json(Response.Status.OK, p.toString());
                 }
-                if (arg != null && m == Method.DELETE) { app.db.deletePlaylist(arg); return ok(); }
+                if (arg != null && m == Method.DELETE) { app.db.deletePlaylist(arg); PlaylistExport.schedule(app); return ok(); }
                 break;
             }
             case "boxes": {
                 if (arg == null && m == Method.GET) return json(Response.Status.OK, app.db.boxes().toString());
                 if (arg == null && m == Method.POST) {
                     JSONObject b = body(s);
-                    return json(Response.Status.OK, app.db.createBox(b.optString("name", "새 상자"), b.optJSONArray("items")).toString());
+                    JSONObject made = app.db.createBox(b.optString("name", "새 상자"), b.optJSONArray("items"));
+                    PlaylistExport.schedule(app); // 상자 = 저장 폴더의 하위 폴더
+                    return json(Response.Status.OK, made.toString());
                 }
                 if (arg != null && m == Method.PUT) {
                     JSONObject b = app.db.updateBox(arg, body(s));
+                    PlaylistExport.schedule(app);
                     return b == null ? json(Response.Status.NOT_FOUND, "{\"error\":\"not found\"}") : json(Response.Status.OK, b.toString());
                 }
-                if (arg != null && m == Method.DELETE) { app.db.deleteBox(arg); return ok(); }
+                if (arg != null && m == Method.DELETE) { app.db.deleteBox(arg); PlaylistExport.schedule(app); return ok(); }
                 break;
             }
-            case "dev-import": { // (디버그 빌드) 같은 폰에 깔린 원래 앱(8642)의 곡 기록·재생목록을 그대로 복사해 온다
+            case "dev-import": { // (디버그 빌드) 같은 폰에 깔린 원래 앱(8642)의 곡 기록·테이프·상자를 그대로 복사해 온다
                 if (!BuildConfig.DEBUG || m != Method.POST) break;
                 JSONArray tracks, pls;
                 try {
@@ -245,9 +251,12 @@ public class WebServer extends NanoHTTPD {
                 } catch (Exception e) {
                     return json(Response.Status.SERVICE_UNAVAILABLE, "{\"error\":\"원래 테이프 박스 앱에 닿지 않아요. 원래 앱을 한 번 열어 둔 뒤 다시 해 주세요\"}");
                 }
-                app.db.replaceFromRelease(tracks, pls);
+                JSONArray boxes = null; // 상자 기능이 없는 옛 원래 앱이면 못 받는다 → 디버그 앱의 상자는 그대로
+                try { boxes = new JSONArray(httpGet("http://127.0.0.1:8642/api/boxes")); } catch (Exception ignored) {}
+                app.db.replaceFromRelease(tracks, pls, boxes);
+                PlaylistExport.schedule(app);
                 app.rescan(null); // 원래 앱에 없던 곡의 번호를 매기고 화면에 알린다
-                return json(Response.Status.OK, new JSONObject().put("tracks", tracks.length()).put("playlists", pls.length()).toString());
+                return json(Response.Status.OK, new JSONObject().put("tracks", tracks.length()).put("playlists", pls.length()).put("boxes", boxes == null ? -1 : boxes.length()).toString());
             }
             case "rescan":
                 app.rescan(null);

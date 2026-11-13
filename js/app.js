@@ -1128,9 +1128,10 @@
     }
     return `<div class="page"><h2 style="font-size:30px;margin:8px 0 0">설정 · 연결</h2>
       ${conn}
-      ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·테이프를 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
+      ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·테이프·상자를 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
       <div class="set-card"><div class="set-row"><div><h3>기록 초기화</h3><p>들은 횟수, 아끼는 곡 표시, 최근 들은 기록 중 고른 것을 지워요. 수집 번호·메모·테이프·상자는 그대로 남아요.</p></div><button class="btn" data-act="reset-records">초기화…</button></div></div>
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
+      ${N ? exportDirCard(N) : ""}
       ${N ? playlistDirCard(N) : ""}
       <div class="set-card" id="folder-card">${folderCard()}</div>
       ${N ? "" : lsSlot()}
@@ -1139,6 +1140,15 @@
   };
 
   // 다른 앱(삼성뮤직 등)이 내보낸 재생목록 파일 폴더 (폰에서만 고를 수 있다)
+  // 내가 만든 테이프를 고른 폴더에 .m3u8로 저장해 두고, 테이프를 고칠 때마다 따라 고친다 (상자는 하위 폴더)
+  function exportDirCard(N) {
+    let dir = "", auto = true; try { dir = N.getExportDir ? N.getExportDir() : ""; auto = N.getExportAuto ? N.getExportAuto() : true; } catch (e) {}
+    return `<div class="set-card"><div class="set-row"><div><h3>테이프를 파일로 저장</h3><p>폴더를 고르면 내가 만든 테이프를 .m3u8 재생목록 파일로 저장하고, 이름을 바꾸거나 곡을 고치거나 지울 때마다 자동으로 따라 고쳐요. 상자에 든 테이프는 상자 이름의 하위 폴더에 들어가요.</p></div>
+      <button class="btn" data-act="export-pick">${dir ? "바꾸기" : "폴더 고르기"}</button></div>
+      ${dir ? `<div class="addr"><div><span>폴더</span><b style="font-size:15px">${esc(dir)}</b></div></div>
+        <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">자동 저장</h3><p>${auto ? "테이프를 고칠 때마다 파일도 바로 고쳐요" : "꺼져 있어요. 「지금 저장」을 누를 때만 저장해요"}</p></div><button class="switch${auto ? " on" : ""}" data-act="export-auto" aria-label="자동 저장"></button></div>
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" data-act="export-now">지금 저장</button><button class="btn ghost" data-act="export-clear">폴더 해제</button></div>` : ""}</div>`;
+  }
   function playlistDirCard(N) {
     let dir = ""; try { dir = N.getPlaylistDir ? N.getPlaylistDir() : ""; } catch (e) {}
     return `<div class="set-card"><div class="set-row"><div><h3>다른 앱 재생목록을 테이프로 가져오기</h3><p>삼성뮤직에서 내보낸 .smpl, 다른 앱의 .m3u 파일이 있는 폴더를 고르면 라이브러리를 읽을 때마다 가져와요. 이 앱에서 고친 테이프는 그대로 둬요.</p></div>
@@ -2271,6 +2281,10 @@
           return;
         }
         case "pldir-pick": try { window.NativeBridge.pickPlaylistDir(); } catch (err) {} return;
+        case "export-pick": try { window.NativeBridge.pickExportDir(); } catch (err) {} return;
+        case "export-now": try { window.NativeBridge.exportNow(); } catch (err) {} toast("테이프를 파일로 저장하고 있어요"); return;
+        case "export-clear": try { window.NativeBridge.clearExportDir(); } catch (err) {} toast("저장 폴더를 해제했어요. 이미 만든 파일은 그대로 있어요"); rerender(); return;
+        case "export-auto": { const on = !a.classList.contains("on"); try { window.NativeBridge.setExportAuto(on); } catch (err) {} toast(on ? "자동 저장을 켰어요. 그동안 바뀐 것도 맞춰 둘게요" : "자동 저장을 껐어요. 「지금 저장」을 누를 때만 저장해요"); rerender(); return; }
         case "pldir-clear": try { window.NativeBridge.clearPlaylistDir(); } catch (err) {} toast("가져오기 폴더를 해제했어요. 이미 가져온 테이프는 남아 있어요"); rerender(); return;
         case "fd-open": { const p = a.dataset.path; FD.open.has(p) ? FD.open.delete(p) : FD.open.add(p); renderFolderCard(); return; }
         case "fd-check": { const ps = fdUnder(a.dataset.path), turnOff = ps.some((p) => !FD.off.has(p)); ps.forEach((p) => (turnOff ? FD.off.add(p) : FD.off.delete(p))); FD.dirty = true; renderFolderCard(); return; }
@@ -2287,11 +2301,11 @@
         case "lyr-revert": revertLyricsModal(a.dataset.id); return;
         case "server-toggle": { const on = !a.classList.contains("on"); try { window.NativeBridge.setServerEnabled(on); } catch (err) {} setTimeout(rerender, 400); return; }
         case "dev-import": {
-          openModal(`<h3>원래 앱 데이터로 덮어쓸까요?</h3><p class="dim" style="margin:0">디버그 앱의 기록·테이프를 원래 앱 것으로 바꿔요. 상자는 그대로 남아요.</p>
+          openModal(`<h3>원래 앱 데이터로 덮어쓸까요?</h3><p class="dim" style="margin:0">디버그 앱의 기록·테이프·상자를 원래 앱 것으로 바꿔요.</p>
             <div class="row-btns"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="dev-import-ok">가져오기</button></div>`);
           $("#dev-import-ok").addEventListener("click", () => {
             closeModal(); toast("원래 앱에서 가져오는 중…");
-            API.devImport().then((r) => { toast(`${U.num(r.tracks)}곡의 기록과 테이프 ${r.playlists}개를 가져왔어요`); setTimeout(reloadLibrary, 600); })
+            API.devImport().then((r) => { toast(`${U.num(r.tracks)}곡의 기록과 테이프 ${r.playlists}개${r.boxes >= 0 ? `, 상자 ${r.boxes}개` : ""}를 가져왔어요`); setTimeout(reloadLibrary, 600); })
               .catch((err) => toast("실패: " + err.message));
           });
           return;
@@ -2699,7 +2713,7 @@
       if (!ok && !linkLost) { linkLost = true; toast("폰 연결이 끊겼어요. 다시 연결되면 이어서 재생해요"); }
       else if (ok && linkLost) { linkLost = false; toast("폰과 다시 연결됐어요"); }
     });
-    P.on("native", (m) => { if (m.type === "library") reloadLibrary(); if (m.type === "resume") reloadLibrary().catch(() => {}); });
+    P.on("native", (m) => { if (m.type === "exportdir") { if (route().name === "settings") rerender(); toast("고른 폴더에 테이프를 저장해요"); } if (m.type === "library") reloadLibrary(); if (m.type === "resume") reloadLibrary().catch(() => {}); });
     renderSidebar();
     P.resume();
     render();

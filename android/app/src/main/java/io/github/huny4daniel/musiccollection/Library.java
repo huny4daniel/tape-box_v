@@ -84,6 +84,7 @@ public class Library {
                 t.size = c.getLong(11);
                 t.albumArtist = cleanArtist(c.getString(12));
                 String path = c.getString(13);
+                t.path = path;
                 String folder = FolderFilter.norm(c.getString(14));
                 if (hasGenre) t.genre = nz(c.getString(15));
                 if (t.duration < 1000) continue;

@@ -55,11 +55,13 @@ final class PlaylistImport {
         Uri plUri = MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI;
         String[] proj = {MediaStore.Audio.Playlists._ID, MediaStore.Audio.Playlists.NAME, MediaStore.Audio.Playlists.DATA};
         int count = 0;
+        String exportDir = PlaylistExport.pathPrefix(db); // 테이프 저장 폴더 (이 앱이 만든 파일이 MediaStore에 잡혀도 다시 가져오지 않게)
         try (Cursor c = ctx.getContentResolver().query(plUri, proj, null, null, null)) {
             if (c != null) while (c.moveToNext()) {
                 long id = c.getLong(0);
                 String name = c.getString(1) == null ? "" : c.getString(1).trim();
                 String data = c.getString(2);
+                if (exportDir != null && data != null && normPath(data).startsWith(exportDir + "/")) continue;
                 if (name.isEmpty() && data != null) name = stripExt(fileName(normPath(data)));
                 if (name.isEmpty()) continue;
 
@@ -80,7 +82,11 @@ final class PlaylistImport {
 
     static final String K_DIR = "playlist_dir";
 
-    /** 설정에서 고른 폴더(SAF)의 재생목록 파일들. 다른 앱이 만든 파일은 MediaStore로 보이지 않아 폴더 권한으로 직접 읽는다 */
+    /**
+     * 설정에서 고른 폴더(SAF)의 재생목록 파일들. 다른 앱이 만든 파일은 MediaStore로 보이지 않아 폴더 권한으로 직접 읽는다.
+     * 바로 아래 하위 폴더는 상자로 본다: 그 안의 재생목록은 처음 가져올 때 그 폴더 이름의 상자에 넣는다
+     * (그 뒤 이 앱에서 다른 상자로 옮기면 그대로 둔다 — 원본은 고치기 전까지만 따라간다)
+     */
     private static int importFolder(Context ctx, Db db, Map<String, Track> byPath, Map<String, Track> byFile,
                                     Map<String, Integer> fileCount, Map<String, Track> byTag) {
         String dir = db.get(K_DIR, null);
@@ -88,31 +94,55 @@ final class PlaylistImport {
         int count = 0;
         try {
             Uri tree = Uri.parse(dir);
-            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-            try (Cursor c = ctx.getContentResolver().query(children, new String[]{
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            String root = DocumentsContract.getTreeDocumentId(tree);
+            count += importDocs(ctx, db, tree, root, null, byPath, byFile, fileCount, byTag);
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, root);
+            try (Cursor c = ctx.getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
                 if (c != null) while (c.moveToNext()) {
-                    String docId = c.getString(0), file = c.getString(1);
-                    if (docId == null || file == null) continue;
-                    String lower = file.toLowerCase(Locale.ROOT);
-                    boolean smpl = lower.endsWith(".smpl");
-                    if (!smpl && !lower.endsWith(".m3u") && !lower.endsWith(".m3u8")) continue;
-                    byte[] raw;
-                    try (InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, docId))) {
-                        raw = readAll(in);
-                    } catch (Exception e) { Log.w(TAG, "read " + file, e); continue; }
-                    if (raw == null) continue;
-                    String[] name = {stripExt(file).trim()};
-                    List<String> items = smpl ? parseSmpl(raw, name, byPath, byFile, fileCount, byTag)
-                            : parseM3u(raw, "", byPath, byFile, fileCount, byTag);
-                    if (items.isEmpty() || name[0].isEmpty()) continue;
-                    try {
-                        if (db.syncImportedPlaylist("doc:" + docId, name[0], items)) count++;
-                    } catch (Exception e) { Log.w(TAG, "save " + name[0], e); }
+                    String docId = c.getString(0), name = c.getString(1);
+                    if (docId == null || name == null || name.startsWith(".") || !DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) continue;
+                    count += importDocs(ctx, db, tree, docId, name.trim(), byPath, byFile, fileCount, byTag);
                 }
             }
         } catch (Exception e) {
             Log.w(TAG, "folder " + dir, e); // 권한이 풀렸거나 폴더가 사라짐
+        }
+        return count;
+    }
+
+    /** 폴더 하나의 재생목록 파일들. box가 있으면 새로 가져온 재생목록을 그 이름의 상자에 넣는다 */
+    private static int importDocs(Context ctx, Db db, Uri tree, String parent, String box, Map<String, Track> byPath, Map<String, Track> byFile,
+                                  Map<String, Integer> fileCount, Map<String, Track> byTag) {
+        int count = 0;
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent);
+        try (Cursor c = ctx.getContentResolver().query(children, new String[]{
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            if (c != null) while (c.moveToNext()) {
+                String docId = c.getString(0), file = c.getString(1);
+                if (docId == null || file == null) continue;
+                String lower = file.toLowerCase(Locale.ROOT);
+                boolean smpl = lower.endsWith(".smpl");
+                if (!smpl && !lower.endsWith(".m3u") && !lower.endsWith(".m3u8")) continue;
+                byte[] raw;
+                try (InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, docId))) {
+                    raw = readAll(in);
+                } catch (Exception e) { Log.w(TAG, "read " + file, e); continue; }
+                if (raw == null) continue;
+                String[] name = {stripExt(file).trim()};
+                List<String> items = smpl ? parseSmpl(raw, name, byPath, byFile, fileCount, byTag)
+                        : parseM3u(raw, "", byPath, byFile, fileCount, byTag);
+                if (items.isEmpty() || name[0].isEmpty()) continue;
+                String key = "doc:" + docId;
+                boolean fresh = db.importedPlaylistId(key) == null;
+                try {
+                    if (db.syncImportedPlaylist(key, name[0], items)) count++;
+                    String id = db.importedPlaylistId(key);
+                    if (fresh && box != null && !box.isEmpty() && id != null) db.putInBoxByName(id, box);
+                } catch (Exception e) { Log.w(TAG, "save " + name[0], e); }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "folder docs", e);
         }
         return count;
     }
@@ -181,7 +211,9 @@ final class PlaylistImport {
                                          Map<String, Integer> fileCount, Map<String, Track> byTag) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         String extArtist = null, extTitle = null;
-        for (String line : decode(raw).split("\\r?\\n|\\r")) {
+        String text = decode(raw);
+        if (text.contains(PlaylistExport.MARK)) return new ArrayList<>(); // 이 앱이 테이프를 저장한 파일
+        for (String line : text.split("\\r?\\n|\\r")) {
             line = line.trim();
             if (line.isEmpty()) continue;
             if (line.startsWith("#")) {
