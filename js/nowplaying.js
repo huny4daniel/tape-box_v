@@ -182,8 +182,8 @@ function queueHtml() {
   const qrow = (id, k) => {
     const t = L.byId.get(id); if (!t) return "";
     const now = k === i;
-    return `<div class="q-row${now ? " now" + (P.playing ? "" : " paused") : k < i ? " played" : ""}" data-q="${k}">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>`
-      + (now ? `<span class="q-eq" title="지금 재생 중"><i></i><i></i><i></i></span>` : `<button class="icon-btn" data-act="q-remove" title="대기열에서 빼기"><i class="ic ic-x"></i></button>`)
+    return `<div class="q-row${now ? " now" + (P.playing ? "" : " paused") : k < i ? " played" : ""}" data-q="${k}"><em class="q-no"><i>${k + 1}</i></em>${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>`
+      + (now ? `<button class="icon-btn q-ph" tabindex="-1" aria-hidden="true"></button>` : `<button class="icon-btn" data-act="q-remove" title="대기열에서 빼기"><i class="ic ic-x"></i></button>`) // 지금 곡은 뺄 수 없다 (자리만 맞춘다)
       + `<span class="q-grip${now ? " off" : ""}" title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span></div>`;
   };
   const ctx = P.context;

@@ -358,6 +358,8 @@ body.no-bar #playerbar { display: none; }
   .row .more { visibility: visible; }
   body.selecting #view .row .ck:not(.off) { display: block; flex: none; }
 }
+/* 순위 목록(가장 많이 들은 곡)은 간소화해도 순위 번호는 남긴다 */
+@container (max-width: 680px) { .tl-rank .row .no { display: block; flex: none; width: 24px; padding: 0; text-align: center; } }
 /* PC 세로 화면: 폭이 남아도 앨범아트·제목·아티스트만 */
 @media (orientation: portrait) and (min-width: 821px) {
   .tl-head { display: none; }
@@ -590,13 +592,18 @@ body.no-bar #playerbar { display: none; }
 .q-grip.off { visibility: hidden; pointer-events: none; }
 .q-row.played { opacity: .5; transition: opacity .15s; } /* 지나간 곡: 살짝 흐리게 (가리키면 또렷하게) */
 .q-row.played:hover { opacity: .85; }
-.q-eq { flex: none; display: flex; align-items: flex-end; gap: 2px; width: 28px; height: 16px; justify-content: center; }
-.q-eq i { width: 3px; height: 100%; border-radius: 1px; background: var(--accent); transform-origin: bottom; animation: q-eq .9s ease-in-out infinite alternate; }
-.q-eq i:nth-child(2) { animation-delay: -.3s; }
-.q-eq i:nth-child(3) { animation-delay: -.6s; }
-.q-row.paused .q-eq i { animation: none; transform: scaleY(.35); }
-@keyframes q-eq { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
-@media (prefers-reduced-motion: reduce) { .q-eq i { animation: none; transform: scaleY(.6); } }
+/* 대기열 순서 번호. 지금 곡은 번호 대신 곡 목록과 같은 이퀄라이저 막대 */
+.q-no { flex: none; position: relative; width: 24px; font-style: normal; text-align: right; color: var(--text-3); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.q-no i { font-style: normal; }
+.q-row.now .q-no i { visibility: hidden; }
+.q-row.now .q-no::after {
+  content: ""; position: absolute; right: 2px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%);
+  background: linear-gradient(var(--accent),var(--accent)) 0 100%/3px 60% no-repeat, linear-gradient(var(--accent),var(--accent)) 5.5px 100%/3px 100% no-repeat, linear-gradient(var(--accent),var(--accent)) 11px 100%/3px 40% no-repeat;
+  animation: eq 0.9s infinite alternate ease-in-out;
+}
+.q-row.now.paused .q-no::after { animation: none; }
+@media (prefers-reduced-motion: reduce) { .q-row.now .q-no::after { animation: none; } }
+.q-row .icon-btn.q-ph { visibility: hidden !important; pointer-events: none; }
 .q-more { padding: 6px 8px; font-size: 12px; }
 .q-row .icon-btn { visibility: hidden; width: 28px; height: 28px; }
 .q-row { position: relative; }
@@ -929,3 +936,8 @@ body.selecting #toast { bottom: calc(var(--bar-h) + 96px); }
 
 /* 설정 카드 오른쪽 버튼: 설명이 길어도 버튼 글자가 세로로 쪼개지지 않게 */
 .set-row > .btn { flex: none; white-space: nowrap; }
+
+/* 순위 번호: PC 세로 화면과 폰에서도 (위 간소화 규칙보다 뒤에 둔다) */
+@media (orientation: portrait) and (min-width: 821px), (max-width: 820px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .tl-rank .row .no { display: block; flex: none; width: 24px; padding: 0; text-align: center; }
+}

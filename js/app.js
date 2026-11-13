@@ -91,7 +91,7 @@ function row(t, i, mode) {
     <span class="ck${mode === "edit" ? " off" : ""}"></span>${lead}
     <div class="t"><span class="t-art">${art(t, 120)}${mode === "edit" ? "" : '<span class="play" title="재생"><i class="ic ic-play"></i></span>'}</span><div><b>${isFresh(t) ? '<span class="new-badge">NEW</span>' : ""}${esc(t.title)}${t.memo ? '<span class="memo-dot" title="메모가 있어요"></span>' : ""}</b><span>${artistLinks(t)}</span></div></div>
     <span class="alb"><a href="${albumHref(t)}" data-stop>${esc(t.album)}</a></span>
-    <span class="dur">${mode === "plays" ? `${U.num(t.plays || 0)}회` : U.fmtDur(t.duration)}</span>
+    <span class="dur">${mode === "plays" ? U.num(t.plays || 0) : U.fmtDur(t.duration)}</span>
     <button class="icon-btn fav${t.fav ? " on" : ""}" data-act="fav" title="${t.fav ? "아끼는 곡에서 빼기" : "아끼는 곡으로"}"><i class="ic ${t.fav ? "ic-heart-fill" : "ic-heart"}"></i></button>
     ${tail}
   </div>`;
@@ -100,7 +100,7 @@ const tlHead = (mode, tool) => `<div class="tl-head">${mode === "edit" ? '<span 
 // tool: 머리줄 오른쪽 끝 칸에 넣을 버튼 (재생목록의 편집 연필)
 function trackList(name, tracks, mode, tool) {
   lists[name] = tracks.map((t) => t.id);
-  return `<div class="tracklist" data-list="${esc(name)}">${tlHead(mode, tool)}${tracks.map((t, i) => row(t, i, mode)).join("")}</div>`;
+  return `<div class="tracklist${mode === "plays" ? " tl-rank" : ""}" data-list="${esc(name)}">${tlHead(mode, tool)}${tracks.map((t, i) => row(t, i, mode)).join("")}</div>`;
 }
 
 function trackCard(t, sub) {
