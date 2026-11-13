@@ -15,7 +15,9 @@ public class App extends Application {
     public Db db;
     public Library library;
     public ArtCache art;
-    public WebServer server;
+    public WebServer server;       // 폰 화면용 (127.0.0.1, http)
+    public WebServer secureServer; // PC용 (https)
+    public TlsCert tls;
     public final NowSync now = new NowSync(); // PC·폰 재생 동기화
     public final ExecutorService io = Executors.newSingleThreadExecutor();
     public final Handler main = new Handler(Looper.getMainLooper());
@@ -32,11 +34,18 @@ public class App extends Application {
         db = new Db(this);
         library = new Library(this, db);
         art = new ArtCache(this, library);
-        server = new WebServer(this);
+        server = WebServer.local(this);
         try {
             server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false);
         } catch (Exception e) {
             Log.e("App", "server start failed", e);
+        }
+        try { // PC 접속용 https (인증서는 처음 한 번 만들어 둔다)
+            tls = TlsCert.loadOrCreate(new java.io.File(getFilesDir(), "tls"));
+            secureServer = WebServer.secure(this, tls);
+            secureServer.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+        } catch (Exception e) {
+            Log.e("App", "secure server start failed", e);
         }
         if ("1".equals(db.get("remote", "0"))) setRemoteEnabled(true);
     }
@@ -58,7 +67,7 @@ public class App extends Application {
 
     public void setRemoteEnabled(boolean on) {
         db.put("remote", on ? "1" : "0");
-        server.setRemoteEnabled(on);
+        WebServer.setRemoteEnabled(on);
         Intent i = new Intent(this, ServerService.class);
         if (on) {
             try { startForegroundService(i); } catch (Exception e) { Log.w("App", "fgs", e); }

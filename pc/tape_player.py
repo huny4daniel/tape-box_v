@@ -1,7 +1,8 @@
 """테이프 박스 (PC)
 
 같은 Wi-Fi에 있는 폰 앱을 찾아 그 화면을 창 하나로 띄운다.
-- 지난번에 붙었던 주소를 먼저 확인하고, 없으면 PC가 붙어 있는 네트워크를 훑어 8642 포트를 연 폰을 찾는다.
+- 지난번에 붙었던 주소를 먼저 확인하고, 없으면 PC가 붙어 있는 네트워크를 훑어 8644 포트(https)를 연 폰을 찾는다.
+- 폰과는 https로만 주고받는다. 처음 붙은 폰의 인증서 지문을 기억해 두고, 지문이 다른 기기에는 붙지 않는다 (phonelink.py).
 - 창(WebView2)의 쿠키를 저장해 두므로 PIN은 처음 한 번만 넣으면 된다. PIN 입력 화면은 폰이 내려주는 화면이 그대로 띄운다.
 - 폰 화면의 「설정 · 연결」에서 싱크 가사 생성기(lyricsync.py)를 설치하고 돌릴 수 있게 js_api를 연다.
 """
@@ -14,8 +15,6 @@ import socket
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 
 
 def _unblock_bundle():
@@ -37,13 +36,17 @@ _unblock_bundle()
 import psutil  # noqa: E402
 import webview  # noqa: E402
 
+import phonelink  # noqa: E402
+
 from lyricsync import LyricSync
 
 # --debug: 폰의 디버그 앱(포트 8643)에 붙는다. 원래 앱과 짝 맺은 쿠키·지난 주소를 섞지 않게 따로 둔다
 DEBUG = "--debug" in sys.argv[1:]
 APP_TITLE = "테이프 박스 (디버그)" if DEBUG else "테이프 박스"
-PORT = 8643 if DEBUG else 8642
+PORT = 8645 if DEBUG else 8644        # 폰의 PC 접속용 https 포트 (WebServer.TLS_PORT)
+RELAY_PORT = 8663 if DEBUG else 8662  # 창이 붙는 이 PC 안의 중계 서버 (늘 같은 주소라야 쿠키가 유지된다)
 HOST_KEY = "host_debug" if DEBUG else "host"
+FP_KEY = "cert_debug" if DEBUG else "cert"  # 처음 붙은 폰의 인증서 지문
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "tape-player")
 CONFIG = os.path.join(DATA_DIR, "config.json")
 PENDING = os.path.join(DATA_DIR, "pending_playlists_debug.json" if DEBUG else "pending_playlists.json")  # 폰에 아직 못 보낸 재생목록 파일
@@ -72,19 +75,8 @@ def save_config(cfg):
 
 # ───── 폰 알아보기 ─────
 def check(host):
-    """host가 폰 앱이면 "ready"(접속 가능) 또는 "off"(「PC에서 접속」이 꺼짐), 아니면 None"""
-    try:
-        with urllib.request.urlopen(f"http://{host}:{PORT}/api/status", timeout=2) as r:
-            o = json.loads(r.read().decode("utf-8"))
-            return "ready" if isinstance(o, dict) and "authorized" in o and "count" in o else None
-    except urllib.error.HTTPError as e:
-        try:
-            body = e.read().decode("utf-8", "replace")
-        except Exception:
-            body = ""
-        return "off" if e.code == 403 and "PC에서 접속" in body else None
-    except Exception:
-        return None
+    """host가 폰 앱이면 ("ready" | "off", 인증서 지문), 아니면 (None, None). "off"는 「PC에서 접속」이 꺼진 상태"""
+    return phonelink.check(host, PORT)
 
 
 def candidate_hosts():
@@ -119,7 +111,8 @@ def candidate_hosts():
     return out
 
 
-async def _scan(hosts):
+async def _scan(hosts, want=None):
+    """폰을 찾는다. want(기억해 둔 지문)가 있으면 그 폰을 먼저, 끝까지 없으면 지문이 다른 폰이라도 돌려준다"""
     sem = asyncio.Semaphore(CONCURRENCY)
     loop = asyncio.get_running_loop()
 
@@ -130,26 +123,28 @@ async def _scan(hosts):
                 w.close()
             except Exception:
                 return None
-            state = await loop.run_in_executor(None, check, h)
-            return (h, state) if state else None
+            state, fp = await loop.run_in_executor(None, check, h)
+            return (h, state, fp) if state else None
 
     tasks = [asyncio.create_task(probe(h)) for h in hosts]
+    other = None
     try:
         for fut in asyncio.as_completed(tasks):
             r = await fut
-            if r:
+            if r and (not want or r[2] == want):
                 return r
-        return None, None
+            other = other or r
+        return other or (None, None, None)
     finally:
         for t in tasks:
             t.cancel()
 
 
-def scan():
+def scan(want=None):
     hosts = candidate_hosts()
     if not hosts:
-        return None, None
-    return asyncio.run(_scan(hosts))
+        return None, None, None
+    return asyncio.run(_scan(hosts, want))
 
 
 # ───── 창 ─────
@@ -162,51 +157,74 @@ h1{font-size:22px;margin:0 0 18px;letter-spacing:-.02em}
 .reel.stop{animation:none;border-top-color:#2c2824}
 p{margin:0;color:#b3aba1;line-height:1.6;font-size:14px}
 small{display:block;margin-top:10px;color:#7d756c;font-size:12px}
+button{margin-top:20px;padding:10px 18px;border:0;border-radius:8px;background:#e8b25a;color:#1a1206;font:inherit;font-weight:700;cursor:pointer}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body><div class="box"><div class="reel" id="reel"></div><h1>테이프 박스</h1>
-<p id="msg">폰을 찾고 있어요…</p><small id="sub"></small></div>
+<p id="msg">폰을 찾고 있어요…</p><small id="sub"></small><button id="act" hidden onclick="this.hidden=true;pywebview.api.trust_phone()"></button></div>
 <script>
-function setStatus(msg, sub, busy){document.getElementById('msg').textContent=msg;document.getElementById('sub').textContent=sub||'';document.getElementById('reel').className='reel'+(busy?'':' stop');}
+function setStatus(msg, sub, busy, act){document.getElementById('msg').textContent=msg;document.getElementById('sub').textContent=sub||'';document.getElementById('reel').className='reel'+(busy?'':' stop');var b=document.getElementById('act');b.textContent=act||'';b.hidden=!act;}
 </script></body></html>"""
 
 
 class Finder:
-    def __init__(self, window):
+    def __init__(self, window, relay):
         self.window = window
+        self.relay = relay
+        self.trust = threading.Event()  # 인증서가 바뀐 폰을 믿겠다고 눌렀다
 
-    def status(self, msg, sub="", busy=True):
+    def status(self, msg, sub="", busy=True, act=""):
         try:
-            self.window.evaluate_js(f"setStatus({json.dumps(msg)}, {json.dumps(sub)}, {json.dumps(busy)})")
+            self.window.evaluate_js(f"setStatus({json.dumps(msg)}, {json.dumps(sub)}, {json.dumps(busy)}, {json.dumps(act)})")
         except Exception:
             pass
 
     def run(self):
         cfg = load_config()
         while True:
-            host, state = None, None
+            host, state, fp = None, None, None
+            pinned = cfg.get(FP_KEY)
             saved = cfg.get(HOST_KEY)
             if saved:
                 self.status("폰에 연결하고 있어요…", saved)
-                state = check(saved)
-                if state:
+                state, fp = check(saved)
+                if state and (not pinned or fp == pinned):
                     host = saved
             if not host:
                 self.status("같은 Wi-Fi에서 폰을 찾고 있어요…", "처음에는 몇 초 걸릴 수 있어요")
-                host, state = scan()
+                host, state, fp = scan(pinned)
+
+            if state and pinned and fp != pinned:
+                # 지난번 폰과 인증서가 다르다: 폰 앱을 새로 깔았거나, 같은 네트워크의 다른 기기가 폰인 척하는 것
+                self.trust.clear()
+                self.status("폰의 보안 인증서가 바뀌었어요",
+                            f"폰 앱을 다시 설치했다면 폰의 설정 · 연결에 나온 인증서가 {phonelink.short_fp(fp)} 인지 확인하고 눌러 주세요. "
+                            "아니라면 누르지 마세요 (공용 Wi-Fi라면 다른 기기가 폰인 척하는 것일 수 있어요)",
+                            busy=False, act="이 폰을 믿기")
+                if self.trust.wait(20):
+                    cfg[FP_KEY] = fp
+                    save_config(cfg)
+                continue
 
             if state == "off":
                 self.status("폰 앱에서 「PC에서 접속」을 켜 주세요",
                             "라이브러리 → 설정 · 연결 · 켜지면 자동으로 연결돼요", busy=False)
                 while state == "off":
                     time.sleep(2)
-                    state = check(host)
+                    state, fp2 = check(host)
+                    if state and fp2 != fp:
+                        state = None  # 그새 다른 기기로 바뀌었다 → 처음부터
+                        break
 
             if state == "ready":
                 cfg[HOST_KEY] = host
+                cfg[FP_KEY] = fp  # 처음 붙은 폰이면 지금 기억한다
                 save_config(cfg)
-                self.window.load_url(f"http://{host}:{PORT}/")
+                self.relay.set_target(host, PORT, fp)
+                self.window.load_url(self.relay.url)
                 return
 
+            if state is None and host:
+                continue
             self.status("폰을 찾지 못했어요",
                         "폰과 PC가 같은 Wi-Fi에 있는지, 폰 앱이 켜져 있는지 확인해 주세요 · 다시 찾는 중", busy=False)
             time.sleep(3)
@@ -217,7 +235,13 @@ class Api:
 
     def __init__(self):
         self._window = None
+        self._finder = None
         self._ls = LyricSync(load_config, save_config)
+
+    def trust_phone(self):
+        """인증서가 바뀐 폰을 믿는다 (연결 화면의 버튼)"""
+        if self._finder:
+            self._finder.trust.set()
 
     # ── 재생목록 추가하기: 고른 파일을 PENDING에 들고 있다가, 폰 화면이 하나씩 받아 폰에 보내고 끝난 것만 지운다 ──
     def _pending(self):
@@ -327,7 +351,9 @@ def main():
     window = webview.create_window(APP_TITLE, html=STATUS_HTML, width=1280, height=820,
                                    min_size=(720, 520), background_color="#0d0c0b", js_api=api)
     api._window = window
-    finder = Finder(window)
+    relay = phonelink.Relay(RELAY_PORT)
+    finder = Finder(window, relay)
+    api._finder = finder
     # 쿠키(짝 맺은 기록)를 남기려면 private_mode를 꺼야 한다
     webview.start(lambda: threading.Thread(target=finder.run, daemon=True).start(),
                   private_mode=False, storage_path=os.path.join(DATA_DIR, "webview-debug" if DEBUG else "webview"))

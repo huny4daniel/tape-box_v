@@ -9,8 +9,9 @@ pages.settings = () => {
   if (N) {
     let info = {}; try { info = JSON.parse(N.getServerInfo()); } catch (e) {}
     conn = `<div class="set-card"><div class="set-row"><div><h3>PC에서 접속</h3><p>같은 Wi-Fi에 있는 컴퓨터의 브라우저에서 이 폰의 컬렉션을 듣고 테이프를 편집할 수 있어요.</p></div><button class="switch${info.enabled ? " on" : ""}" data-act="server-toggle" aria-label="PC 접속"></button></div>
-      ${info.enabled ? `<div class="addr">${(info.urls || []).map((u) => `<div><span>주소</span><b>${esc(u)}</b></div>`).join("") || `<div><span>주소</span><b>Wi-Fi에 연결되어 있지 않아요</b></div>`}<div><span>PIN</span><b class="pin-code">${esc(info.pin || "")}</b></div></div>
-        <p style="margin-top:10px">PC 프로그램 「테이프 박스」를 실행하면 폰을 알아서 찾아요(브라우저 주소창에 위 주소를 넣어도 돼요). 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>` : ""}</div>`;
+      ${info.enabled ? `<div class="addr">${(info.urls || []).map((u) => `<div><span>주소</span><b>${esc(u)}</b></div>`).join("") || `<div><span>주소</span><b>Wi-Fi에 연결되어 있지 않아요</b></div>`}<div><span>PIN</span><b class="pin-code">${esc(info.pin || "")}</b></div>${info.fingerprint ? `<div><span>인증서</span><b>${esc(info.fingerprint.slice(0, 16).toUpperCase().match(/.{4}/g).join(" "))}</b></div>` : ""}</div>
+        <p style="margin-top:10px">PC 프로그램 「테이프 박스」를 실행하면 폰을 알아서 찾아요. 처음 한 번 PIN을 넣으면 돼요. 켜 둔 동안 알림이 표시돼요.</p>
+        <p style="margin-top:6px">주고받는 내용은 암호화돼요. 브라우저 주소창에 위 주소를 직접 넣으면 처음에 「안전하지 않음」 경고가 나오는데, 이 폰이 직접 만든 인증서라서 그래요. 경고 화면의 인증서 지문(SHA-256) 앞부분이 위 「인증서」와 같으면 계속 진행해도 돼요.</p>` : ""}</div>`;
   } else {
     conn = `<div class="set-card"><h3>폰에 연결됨</h3><p>지금 이 화면은 폰에 저장된 컬렉션을 실시간으로 불러오고 있어요. 테이프·메모·아끼는 곡은 폰에 바로 저장돼요.</p></div>`;
   }

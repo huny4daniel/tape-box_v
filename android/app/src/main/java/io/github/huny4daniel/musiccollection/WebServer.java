@@ -29,30 +29,44 @@ import java.util.Map;
 import fi.iki.elonen.NanoHTTPD;
 
 /**
- * 내장 서버. 폰 안의 화면(WebView)은 127.0.0.1로, 같은 Wi-Fi의 PC 브라우저는 폰의 IP로 접속한다.
+ * 내장 서버. 둘을 띄운다.
+ * - 폰 안의 화면(WebView)용: 127.0.0.1:PORT 의 http. 폰 밖에서는 아예 닿지 않는다
+ * - PC용: 모든 주소의 TLS_PORT 에 https (이 폰의 자체 서명 인증서, {@link TlsCert}). 공용 Wi-Fi에서도 오가는 내용이 보이지 않게
  * 폰 밖에서 오는 요청은 「PC에서 접속」을 켰을 때만, 그리고 PIN으로 짝을 맺은 브라우저만 받는다.
  */
 public class WebServer extends NanoHTTPD {
     private static final String TAG = "WebServer";
     // 디버그 빌드는 릴리즈 앱과 함께 깔려 있어도 서로의 서버에 붙지 않도록 다른 포트를 쓴다
+    // PORT는 화면(WebView)의 주소라 바꾸면 화면이 저장해 둔 값(localStorage)을 잃는다. 그대로 둔다
     public static final int PORT = BuildConfig.DEBUG ? 8643 : 8642;
+    public static final int TLS_PORT = BuildConfig.DEBUG ? 8645 : 8644;
     private static final String JSON = "application/json; charset=utf-8";
     private static final String COOKIE = "mc_token";
 
     private final Context ctx;
     private final App app;
-    private volatile boolean remoteEnabled = false;
-    private int failCount = 0;
-    private long lockedUntil = 0;
+    private static volatile boolean remoteEnabled = false; // 두 서버가 함께 따른다
+    private static int failCount = 0;    // PIN 틀린 횟수도 두 서버를 합쳐 센다
+    private static long lockedUntil = 0;
 
-    public WebServer(App app) {
-        super(PORT);
+    /** 폰 화면용 (127.0.0.1만) */
+    public static WebServer local(App app) { return new WebServer(app, "127.0.0.1", PORT); }
+
+    /** PC용 https (모든 주소) */
+    public static WebServer secure(App app, TlsCert cert) throws Exception {
+        WebServer s = new WebServer(app, null, TLS_PORT);
+        s.makeSecure(cert.serverSocketFactory(), null);
+        return s;
+    }
+
+    private WebServer(App app, String host, int port) {
+        super(host, port);
         this.app = app;
         this.ctx = app.getApplicationContext();
     }
 
-    public void setRemoteEnabled(boolean on) { remoteEnabled = on; }
-    public boolean isRemoteEnabled() { return remoteEnabled; }
+    public static void setRemoteEnabled(boolean on) { remoteEnabled = on; }
+    public static boolean isRemoteEnabled() { return remoteEnabled; }
 
     // ───── 짝 맺기 ─────
     public String pin() {
@@ -105,7 +119,7 @@ public class WebServer extends NanoHTTPD {
                 String n = ni.getName().toLowerCase(Locale.ROOT);
                 if (n.startsWith("rmnet") || n.startsWith("ccmni") || n.startsWith("dummy") || n.startsWith("tun")) continue; // 모바일 데이터·VPN 제외
                 for (InetAddress a : Collections.list(ni.getInetAddresses())) {
-                    if (a instanceof Inet4Address && a.isSiteLocalAddress()) out.add("http://" + a.getHostAddress() + ":" + PORT);
+                    if (a instanceof Inet4Address && a.isSiteLocalAddress()) out.add("https://" + a.getHostAddress() + ":" + TLS_PORT);
                 }
             }
         } catch (Exception ignored) {}
@@ -320,15 +334,17 @@ public class WebServer extends NanoHTTPD {
         return json(Response.Status.NOT_FOUND, "{\"error\":\"not found\"}");
     }
 
-    private synchronized Response pair(IHTTPSession s) throws Exception {
-        long now = System.currentTimeMillis();
-        if (now < lockedUntil) return json(Response.Status.FORBIDDEN, "{\"error\":\"locked\"}");
+    private Response pair(IHTTPSession s) throws Exception {
         String pin = body(s).optString("pin", "");
-        if (!pin.equals(pin())) {
-            if (++failCount >= 5) { failCount = 0; lockedUntil = now + 60_000; }
-            return json(Response.Status.FORBIDDEN, "{\"error\":\"wrong pin\"}");
+        synchronized (WebServer.class) { // 틀린 횟수는 두 서버가 함께 센다
+            long now = System.currentTimeMillis();
+            if (now < lockedUntil) return json(Response.Status.FORBIDDEN, "{\"error\":\"locked\"}");
+            if (!pin.equals(pin())) {
+                if (++failCount >= 5) { failCount = 0; lockedUntil = now + 60_000; }
+                return json(Response.Status.FORBIDDEN, "{\"error\":\"wrong pin\"}");
+            }
+            failCount = 0;
         }
-        failCount = 0;
         Response r = ok();
         r.addHeader("Set-Cookie", COOKIE + "=" + newToken() + "; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax");
         return r;

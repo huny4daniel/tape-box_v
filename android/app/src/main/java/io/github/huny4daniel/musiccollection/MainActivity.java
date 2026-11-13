@@ -297,10 +297,12 @@ public class MainActivity extends ComponentActivity {
         @JavascriptInterface public String getServerInfo() {
             try {
                 JSONObject o = new JSONObject();
-                o.put("enabled", app.server.isRemoteEnabled());
+                o.put("enabled", WebServer.isRemoteEnabled());
                 o.put("urls", new JSONArray(WebServer.urls()));
                 o.put("pin", app.server.pin());
-                o.put("port", WebServer.PORT);
+                o.put("port", WebServer.TLS_PORT);
+                // 브라우저 경고 화면에서 이 폰이 맞는지 맞춰 볼 수 있게 인증서 지문 앞부분
+                o.put("fingerprint", app.tls == null ? "" : app.tls.fingerprint());
                 return o.toString();
             } catch (Exception e) { return "{}"; }
         }

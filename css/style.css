@@ -1,5 +1,11 @@
-/* ───────── 손글씨 글꼴 (앱에 내장: 인터넷 없이도 나오게) ─────────
-   폰 앱 assets/fonts에 든 파일을 내장 서버가 /fonts/로 내준다 (폰 위젯과 같은 파일) */
+/* ───────── 글꼴 (앱에 내장: 인터넷 없이도 나오게) ─────────
+   폰 앱 assets/fonts에 든 파일을 내장 서버가 /fonts/로 내준다 (손글씨는 폰 위젯과 같은 파일) */
+@font-face {
+  font-family: "Pretendard Variable";
+  src: local("Pretendard Variable"), url("../fonts/PretendardVariable.woff2") format("woff2-variations"), url("../fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 930;
+  font-display: swap;
+}
 @font-face {
   font-family: "Nanum Pen Script";
   src: local("Nanum Pen Script"), local("NanumPen"), url("../fonts/NanumPenScript-Regular.ttf") format("truetype");
