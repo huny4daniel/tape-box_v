@@ -197,6 +197,12 @@ final class PlaylistExport {
 
         JSONObject map = new JSONObject(db.get(K_MAP, "{}"));
         JSONObject files = map.optJSONObject("files"); if (files == null) files = new JSONObject();
+        // 표시 없는 파일이라도 이미 기록된 자리(바로 전 pull이 새 테이프로 만들고 아직 표시를 쓰기 전)면 그 테이프의 파일로 본다
+        Map<String, String> idByDoc = new HashMap<>();
+        for (java.util.Iterator<String> it = files.keys(); it.hasNext(); ) {
+            String id = it.next(); JSONObject e = files.optJSONObject(id);
+            if (e != null && !e.optString("doc").isEmpty()) idByDoc.put(e.optString("doc"), id);
+        }
         // 내용을 읽고 #TAPEBOX: 표시를 찾는다. 같은 표시가 둘 이상이면(파일을 복사함) 기록된 자리의 것이 원본, 나머지는 새 테이프
         Map<String, Found> byMark = new HashMap<>();
         List<Found> fresh = new java.util.ArrayList<>();
@@ -205,6 +211,10 @@ final class PlaylistExport {
             catch (Exception e) { Log.w(TAG, "read " + f.path(), e); continue; }
             if (f.text == null) continue;
             for (String line : f.text.split("\\r?\\n|\\r")) if (line.startsWith(MARK)) { f.mark = line.substring(MARK.length()).trim(); break; }
+            if (f.mark == null) {
+                String known = idByDoc.get(f.doc);
+                if (known != null && !known.startsWith("hist-") && db.playlist(known) != null) f.mark = known;
+            }
             if (f.mark == null || f.mark.startsWith("hist-")) { if (f.mark == null) fresh.add(f); continue; }
             Found had = byMark.get(f.mark);
             JSONObject e = files.optJSONObject(f.mark);
@@ -263,6 +273,50 @@ final class PlaylistExport {
         }
         if (changed || mapDirty) { map.put("files", files); db.put(K_MAP, map.toString()); }
         return changed;
+    }
+
+    /**
+     * PC 프로그램에서 고른 재생목록 파일 하나로 새 테이프를 만들고, 저장 폴더가 있으면 그 바로 아래에 이 앱의 파일로 써 둔다.
+     * 곡은 경로 → 파일 이름 → #EXTINF 태그 순으로 폰 컬렉션에서 찾는다 (PC 경로라도 파일 이름·태그로 맞춘다).
+     * 돌려주는 것: { ok, id, name, count, saved } 또는 { ok:false, error }
+     */
+    static synchronized JSONObject importFile(App app, String fileName, byte[] raw) throws Exception {
+        if (!app.library.isScanned()) return new JSONObject().put("ok", false).put("error", "폰이 아직 라이브러리를 읽고 있어요");
+        String text = PlaylistImport.readText(new java.io.ByteArrayInputStream(raw));
+        if (text == null) return new JSONObject().put("ok", false).put("error", "파일을 읽지 못했어요");
+        List<String> items = PlaylistImport.parseTapeText(text, app.library.all());
+        if (items.isEmpty()) return new JSONObject().put("ok", false).put("error", "폰 컬렉션에서 맞는 곡을 찾지 못했어요");
+        String name = stripExt(fileName == null ? "" : fileName.replace('\\', '/').substring(fileName.replace('\\', '/').lastIndexOf('/') + 1)).trim();
+        if (name.isEmpty()) name = "가져온 테이프";
+        JSONObject pl = app.db.createPlaylist(name, new JSONArray(items));
+        String id = pl.getString("id");
+        JSONObject out = new JSONObject().put("ok", true).put("id", id).put("name", name).put("count", items.size()).put("saved", false);
+
+        String dir = app.db.get(K_DIR, "");
+        if (dir.isEmpty()) return out; // 저장 폴더를 안 골랐으면 테이프만
+        try {
+            ContentResolver cr = app.getContentResolver();
+            Uri tree = Uri.parse(dir);
+            String rootDoc = DocumentsContract.getTreeDocumentId(tree);
+            Set<String> taken = new HashSet<>();
+            try (Cursor c = cr.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, rootDoc), new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+                if (c != null) while (c.moveToNext()) if (c.getString(0) != null) taken.add(c.getString(0).toLowerCase(Locale.ROOT));
+            }
+            String base = safe(name), file = base + ".m3u8";
+            for (int n = 2; taken.contains(file.toLowerCase(Locale.ROOT)); n++) file = base + " (" + n + ").m3u8";
+            String body = content(app, pl); // 이 앱의 형식(#TAPEBOX: 표시)으로 쓴다 → 가져오기·pull이 다시 새 테이프로 보지 않는다
+            Uri made = DocumentsContract.createDocument(cr, DocumentsContract.buildDocumentUriUsingTree(tree, rootDoc), MIME, file);
+            if (made == null) return out;
+            String doc = DocumentsContract.getDocumentId(made);
+            try (OutputStream o = cr.openOutputStream(made, "wt")) { if (o != null) o.write(body.getBytes(StandardCharsets.UTF_8)); }
+            JSONObject map = new JSONObject(app.db.get(K_MAP, "{}"));
+            JSONObject files = map.optJSONObject("files"); if (files == null) files = new JSONObject();
+            files.put(id, new JSONObject().put("doc", doc).put("path", "/" + file).put("hash", hash(body)).put("at", System.currentTimeMillis()));
+            map.put("files", files);
+            app.db.put(K_MAP, map.toString());
+            out.put("saved", true).put("file", file);
+        } catch (Exception e) { Log.w(TAG, "import write " + name, e); } // 파일은 못 써도 테이프는 남긴다 (다음 저장 때 다시 쓴다)
+        return out;
     }
 
     /** 파일이 있는 폴더에 맞춰 테이프의 상자를 맞춘다. 바뀌면 true */

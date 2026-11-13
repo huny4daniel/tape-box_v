@@ -27,6 +27,7 @@
     setTrack: (id, patch) => req("POST", "/api/track/" + encodeURIComponent(id), patch),
     history: () => req("GET", "/api/history"), // 히스토리 상자: [{ month: "2026-11", items: [곡 id…] }]
     syncFiles: () => req("POST", "/api/sync-files"), // 테이프 저장 폴더에서 밖에서 고친 파일을 반영 → { changed }
+    importPlaylist: (name, data) => req("POST", "/api/import-playlist", { name, data }), // PC에서 고른 재생목록 파일(base64) → { ok, id, name, count, saved } | { ok:false, error }
     prefs: () => req("GET", "/api/prefs"), // 기기를 가리지 않는 화면 상태 (js/prefs.js)
     setPrefs: (patch) => req("PUT", "/api/prefs", patch), // 바뀐 부분만. 폰이 합쳐서 전체를 돌려준다
     resetRecords: (what) => req("POST", "/api/reset-records", what), // { plays, favs, history }

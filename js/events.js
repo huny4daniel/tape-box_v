@@ -126,6 +126,7 @@ document.addEventListener("click", (e) => {
           .catch((err) => { if (FD) { FD.saving = false; renderFolderCard(); } toast("실패: " + err.message); });
         return;
       }
+      case "plfile-add": plFileAdd(); return;
       case "ls-pick": case "ls-install": case "ls-stop": case "ls-remove": case "ls-start": case "ls-tab": case "ls-revert": case "ls-keep": case "ls-retry": case "ls-revert-all": case "ls-reset": case "ls-source": case "ls-pick-music": case "ls-send": lsAct(act, a); return;
       case "lyr-retry": $$("[data-lyr]").forEach((b) => mountLyrics(b)); return;
       case "lyr-revert": revertLyricsModal(a.dataset.id); return;

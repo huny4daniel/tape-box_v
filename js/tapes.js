@@ -20,6 +20,7 @@
       ["unheard", "아직 못 들은 곡", "한 번도 듣지 않은 곡"],
       ["onthisday", "그해 오늘", "몇 년 전 이맘때(앞뒤 2주) 컬렉션에 들인 곡"],
       ["dailymix", "오늘의 믹스", "아끼는 곡·단골 곡·오랜만인 곡을 섞은 30곡, 날마다 바뀐다"],
+      ["random", "랜덤 테이프", "컬렉션에서 아무렇게나 고른 30곡, 꽂을 때마다 바뀐다"],
     ];
     const SYS_IDS = SYS_TAPES.map((x) => x[0]);
     const isHistTape = (id) => String(id).startsWith("hist-");
@@ -38,6 +39,9 @@
     const histBox = () => ({ id: "hist", name: "히스토리 상자", items: (L.history || []).filter((h) => h.items.length).map((h) => "hist-" + h.month), system: true, history: true, created: 0, updated: 0 });
     const DAY_MS = 86400000;
     let sysCache = { at: 0, map: new Map() }; // 곡 3천 개를 매번 훑지 않게 잠깐(2초) 기억해 둔다
+    // 랜덤 테이프: 씨앗이 같으면 같은 30곡 (상세 화면에서 본 목록 그대로 재생되게). 꽂거나 새로 틀 때 씨앗을 바꾼다
+    let randomSeed = (Date.now() % 4294967295) >>> 0;
+    const reshuffleTape = (id) => { if (id !== "random") return; randomSeed = (Math.imul(randomSeed, 2654435761) + Date.now()) >>> 0; sysCache.map.delete("random"); };
     function systemTape(id) {
       if (id === "liked") return Object.assign(likedPl(), { system: true, desc: SYS_TAPES[0][2] });
       const def = SYS_TAPES.find((x) => x[0] === id); if (!def) return null;
@@ -55,7 +59,8 @@
           const doy = (x) => Math.floor((Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) - Date.UTC(x.getFullYear(), 0, 0)) / DAY_MS);
           const today = doy(d);
           items = ids(T.filter((t) => { if (!t.addedAt) return false; const a = new Date(t.addedAt); if (a.getFullYear() >= y) return false; const diff = Math.abs(doy(a) - today); return Math.min(diff, 365 - diff) <= 14; }).sort((a, b) => b.addedAt - a.addedAt));
-        } else if (id === "dailymix") {
+        } else if (id === "random") items = U.pick(T.map((t) => t.id), Math.min(30, T.length), U.seeded(randomSeed));
+        else if (id === "dailymix") {
           const rnd = U.seeded(Number(new Date(now).toISOString().slice(0, 10).replace(/-/g, "")));
           const pool = [...new Set([...likedPl().items, ...systemTape("top").items, ...systemTape("longago").items])];
           const pick = U.pick(pool, Math.min(30, pool.length), rnd);
@@ -84,6 +89,6 @@
     const canEditTape = (id) => canBox(id); // 곡을 넣고 빼고 이름을 고칠 수 있는 테이프인가
     const tapeHref = (pl) => (pl.id === "liked" ? "#/liked" : "#/playlist/" + encodeURIComponent(pl.id));
 
-    return { isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes };
+    return { reshuffleTape, isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes };
   };
 })();

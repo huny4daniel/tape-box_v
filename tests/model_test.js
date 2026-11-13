@@ -148,3 +148,19 @@ test("예전 폰 앱(화면 상태 API 없음)이면 이 기기에 있던 값을
   await w.Prefs.load();
   eq(w.Prefs.get("boxHidden"), { sys: true });
 });
+
+test("랜덤 테이프: 꽂기 전까지는 같은 곡, 꽂으면 새로 고른다", () => {
+  const w = load();
+  const tracks = Array.from({ length: 100 }, (_, i) => ({ id: "t" + i, n: i + 1, plays: 0, addedAt: 0 }));
+  const M = w.TapeModel(lib({ tracks }), w.U);
+  assert.ok(M.SYS_IDS.includes("random"), "시스템 상자에 들어 있음");
+  assert.equal(M.canBox("random"), false, "내 상자로는 못 옮김");
+  const a = JSON.parse(JSON.stringify(M.systemTape("random").items));
+  assert.equal(a.length, 30);
+  assert.equal(new Set(a).size, 30, "겹치는 곡 없음");
+  eq(M.systemTape("random").items, a, "다시 봐도 같은 30곡");
+  M.reshuffleTape("top");
+  eq(M.systemTape("random").items, a, "다른 테이프를 꽂으면 그대로");
+  M.reshuffleTape("random");
+  assert.notDeepEqual(JSON.parse(JSON.stringify(M.systemTape("random").items)), a, "꽂으면 새 30곡");
+});

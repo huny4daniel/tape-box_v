@@ -6,6 +6,7 @@
 - 폰 화면의 「설정 · 연결」에서 싱크 가사 생성기(lyricsync.py)를 설치하고 돌릴 수 있게 js_api를 연다.
 """
 import asyncio
+import base64
 import ipaddress
 import json
 import os
@@ -45,6 +46,8 @@ PORT = 8643 if DEBUG else 8642
 HOST_KEY = "host_debug" if DEBUG else "host"
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "tape-player")
 CONFIG = os.path.join(DATA_DIR, "config.json")
+PENDING = os.path.join(DATA_DIR, "pending_playlists_debug.json" if DEBUG else "pending_playlists.json")  # 폰에 아직 못 보낸 재생목록 파일
+PENDING_MAX = 2 * 1024 * 1024  # 재생목록 파일 하나의 상한 (폰 서버가 받는 요청 크기 안에 들게)
 
 CONNECT_TIMEOUT = 0.6   # 포트 하나 두드려 보는 시간
 CONCURRENCY = 384       # 한꺼번에 두드리는 수
@@ -210,11 +213,64 @@ class Finder:
 
 
 class Api:
-    """폰 화면(설정 · 연결)이 window.pywebview.api로 부르는 PC 쪽 기능. 지금은 싱크 가사 생성기"""
+    """폰 화면(설정 · 연결)이 window.pywebview.api로 부르는 PC 쪽 기능. 재생목록 추가하기와 싱크 가사 생성기"""
 
     def __init__(self):
         self._window = None
         self._ls = LyricSync(load_config, save_config)
+
+    # ── 재생목록 추가하기: 고른 파일을 PENDING에 들고 있다가, 폰 화면이 하나씩 받아 폰에 보내고 끝난 것만 지운다 ──
+    def _pending(self):
+        try:
+            with open(PENDING, encoding="utf-8") as f:
+                items = json.load(f)
+            return items if isinstance(items, list) else []
+        except Exception:
+            return []
+
+    def _save_pending(self, items):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = PENDING + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False)
+        os.replace(tmp, PENDING)
+
+    def pl_pick(self):
+        """파일 탐색기에서 재생목록 파일을 여러 개 고른다 → 보낼 목록에 더한다"""
+        kind = getattr(getattr(webview, "FileDialog", None), "OPEN", None) or webview.OPEN_DIALOG
+        r = self._window.create_file_dialog(kind, allow_multiple=True,
+                                            file_types=("재생목록 (*.m3u;*.m3u8)", "모든 파일 (*.*)"))
+        if not r:
+            return {"ok": False, "cancel": True}
+        paths = [r] if isinstance(r, str) else list(r)
+        items = self._pending()
+        errors = []
+        for p in paths:
+            try:
+                if os.path.getsize(p) > PENDING_MAX:
+                    errors.append(f"{os.path.basename(p)}: 파일이 너무 커요")
+                    continue
+                with open(p, "rb") as f:
+                    data = base64.b64encode(f.read()).decode("ascii")
+            except OSError as e:
+                errors.append(f"{os.path.basename(p)}: {e.strerror or e}")
+                continue
+            key = os.path.normcase(p)
+            items = [x for x in items if os.path.normcase(x.get("src", "")) != key]  # 같은 파일을 또 고르면 새 내용으로
+            items.append({"src": p, "name": os.path.basename(p), "data": data})
+        self._save_pending(items)
+        return {"ok": True, "added": len(paths) - len(errors), "errors": errors, "pending": len(items)}
+
+    def pl_pending(self):
+        """보낼 차례인 파일들 (내용 포함)"""
+        return self._pending()
+
+    def pl_done(self, srcs):
+        """폰이 받은(또는 받을 수 없는) 파일을 목록에서 뺀다"""
+        drop = {os.path.normcase(s) for s in (srcs or [])}
+        items = [x for x in self._pending() if os.path.normcase(x.get("src", "")) not in drop]
+        self._save_pending(items)
+        return {"ok": True, "pending": len(items)}
 
     def ls_state(self):
         return self._ls.state()

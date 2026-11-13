@@ -209,6 +209,16 @@ public class WebServer extends NanoHTTPD {
                 if (changed && PlaylistExport.auto(app.db)) PlaylistExport.schedule(app); // 이름·자리를 맞춰 다시 쓴다
                 return json(Response.Status.OK, new JSONObject().put("changed", changed).toString());
             }
+            case "import-playlist": { // PC 프로그램에서 고른 재생목록 파일 하나 { name, data(base64) } → 새 테이프 + 저장 폴더에 파일
+                if (m != Method.POST) break;
+                JSONObject b = body(s);
+                byte[] raw;
+                try { raw = android.util.Base64.decode(b.optString("data", ""), android.util.Base64.DEFAULT); }
+                catch (IllegalArgumentException e) { return json(Response.Status.BAD_REQUEST, "{\"error\":\"bad data\"}"); }
+                JSONObject r = PlaylistExport.importFile(app, b.optString("name", ""), raw);
+                if (r.optBoolean("ok")) PlaylistExport.schedule(app); // 이름이 다른 테이프와 겹치면 자리를 맞춘다
+                return json(Response.Status.OK, r.toString());
+            }
             case "prefs": { // 기기를 가리지 않는 화면 상태 (최근 들은 테이프 · 숨긴 상자 · 정렬)
                 if (m == Method.GET) return json(Response.Status.OK, app.db.prefs().toString());
                 if (m == Method.PUT || m == Method.POST) return json(Response.Status.OK, app.db.mergePrefs(body(s)).toString());

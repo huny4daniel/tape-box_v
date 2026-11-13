@@ -51,6 +51,7 @@ async function boot() {
     const [lib, pls, bxs] = await Promise.all([API.library(), API.playlists(), loadBoxes(), loadHistory(), Prefs.load()]);
     indexLibrary(lib.tracks || []); L.playlists = pls || []; L.boxes = bxs; applyPrefs();
     pullFiles();
+    plFlushWhenReady(); // PC 프로그램: 폰에 아직 못 보낸 재생목록 파일
   } catch (e) {
     if (e instanceof API.Unauthorized) return showGate();
     $("#view").innerHTML = `<div class="page"><div class="empty"><b>폰에 연결할 수 없어요</b>폰 앱에서 「PC에서 접속」이 켜져 있는지, 같은 Wi-Fi인지 확인해 주세요.<br><br><button class="btn" onclick="location.reload()">다시 시도</button></div></div>`;

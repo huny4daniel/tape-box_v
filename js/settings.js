@@ -18,13 +18,14 @@ pages.settings = () => {
     ${conn}
     ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·테이프·상자를 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
     <div class="set-card"><h3>기본 상자</h3><p>앱이 저절로 만들어 두는 상자예요. 숨겨도 기록은 그대로 쌓여요.</p>
-      <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">시스템 상자</h3><p>아끼는 곡 · 단골 곡 · 새로 들인 곡 · 오랜만이에요 · 아직 못 들은 곡 · 그해 오늘 · 오늘의 믹스</p></div><button class="switch${sysHidden() ? "" : " on"}" data-act="box-show" data-bx="sys" aria-label="시스템 상자 보이기"></button></div>
+      <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">시스템 상자</h3><p>${SYS_TAPES.map((x) => x[1]).join(" · ")}</p></div><button class="switch${sysHidden() ? "" : " on"}" data-act="box-show" data-bx="sys" aria-label="시스템 상자 보이기"></button></div>
       <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">히스토리 상자</h3><p>달마다 그 달에 가장 많이 들은 30곡</p></div><button class="switch${histHidden() ? "" : " on"}" data-act="box-show" data-bx="hist" aria-label="히스토리 상자 보이기"></button></div></div>
     <div class="set-card"><div class="set-row"><div><h3>기록 초기화</h3><p>들은 횟수, 아끼는 곡 표시, 최근 들은 기록 중 고른 것을 지워요. 수집 번호·메모·테이프·상자는 그대로 남아요.</p></div><button class="btn" data-act="reset-records">초기화…</button></div></div>
     <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
     ${N ? exportDirCard(N) : ""}
     ${N ? playlistDirCard(N) : ""}
     <div class="set-card" id="folder-card">${folderCard()}</div>
+    ${N ? "" : plFileSlot()}
     ${N ? "" : lsSlot()}
     <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 테이프 ${L.playlists.length}개</p></div>
   </div>`;
@@ -88,6 +89,61 @@ function folderCard() {
     <div class="fd-tree">${FD.folders.length ? folderRows(folderTree(), 0) : `<p>음악이 든 폴더가 없어요</p>`}</div>
     <div class="set-row" style="margin-top:16px"><div><h3 style="font-size:15px">새로 생긴 폴더도 자동으로 넣기</h3><p>끄면 지금 켜 둔 폴더만 읽어요. 이미 있는 폴더 안에 새로 생긴 폴더는 그 폴더 설정을 따라요.</p></div><button class="switch${FD.autoNew ? " on" : ""}" data-act="fd-auto" aria-label="새 폴더 자동으로 넣기"></button></div>
     <div class="fd-foot"><span>${U.num(total)}곡 중 <b>${U.num(inN)}곡</b>을 넣어요</span><button class="btn" data-act="fd-apply"${FD.dirty && !FD.saving ? "" : " disabled"}>${FD.saving ? "적용하는 중…" : "적용"}</button></div>`;
+}
+
+// 재생목록 추가하기: PC 프로그램 창에서만 보인다. 고른 파일은 PC가 들고 있다가(pl_pending) 폰에 하나씩 보내고,
+// 폰이 받은 것만 지운다 → 폰과 연결이 끊겨 있었으면 다음에 연결될 때 마저 보낸다
+const PLA = () => (window.pywebview && window.pywebview.api && window.pywebview.api.pl_pick ? window.pywebview.api : null);
+let plSending = null, plLeft = 0;
+function plFileSlot() { setTimeout(renderPlFileCard); return `<div class="set-card" id="plfile-card" hidden></div>`; }
+window.addEventListener("pywebviewready", () => renderPlFileCard());
+function renderPlFileCard() {
+  const c = $("#plfile-card"); if (!c || !PLA()) return;
+  c.hidden = false;
+  c.innerHTML = `<div class="set-row"><div><h3>재생목록 추가하기</h3><p>이 PC의 .m3u·.m3u8 재생목록 파일을 골라(여러 개 가능) 폰에 테이프로 만들어요. 「테이프를 파일로 저장」 폴더를 골라 두었으면 그 폴더에도 넣어요. 곡은 파일 이름과 제목·아티스트로 폰 컬렉션에서 찾아요.</p></div>
+    <button class="btn" data-act="plfile-add"${plSending ? " disabled" : ""}>${plSending ? "보내는 중…" : "파일 고르기"}</button></div>
+    ${plLeft ? `<p class="ls-note">폰에 아직 못 보낸 파일 ${plLeft}개 · 폰과 연결되면 다시 보내요</p>` : ""}`;
+}
+function plFileAdd() {
+  const pw = PLA(); if (!pw || plSending) return;
+  pw.pl_pick().then((r) => {
+    if (!r || r.cancel) return;
+    if (r.errors && r.errors.length) toast("읽지 못한 파일: " + r.errors.join(", "));
+    return plFlush();
+  }).catch((err) => toast("실패: " + ((err && err.message) || err)));
+}
+// 들고 있는 파일을 폰에 보낸다. 폰이 답한 것(테이프를 만들었든, 맞는 곡이 없든)은 목록에서 빼고, 닿지 않은 것은 남긴다
+function plFlush() {
+  const pw = PLA(); if (!pw) return Promise.resolve();
+  if (plSending) return plSending;
+  plSending = (async () => {
+    const items = (await pw.pl_pending()) || [];
+    if (!items.length) { plLeft = 0; return; }
+    renderPlFileCard();
+    const done = [], made = [], bad = [];
+    let lost = null;
+    for (const it of items) {
+      let r;
+      try { r = await API.importPlaylist(it.name, it.data); }
+      catch (e) { lost = e; break; } // 폰에 닿지 않음 (끊김·예전 폰 앱) → 나머지는 다음에
+      done.push(it.src);
+      if (r && r.ok) made.push(r); else bad.push(it.name.replace(/\.[^.]+$/, "") + " (" + ((r && r.error) || "실패") + ")");
+    }
+    const res = done.length ? await pw.pl_done(done) : null;
+    plLeft = res ? res.pending || 0 : items.length;
+    const msg = [];
+    if (made.length) msg.push(made.length === 1 ? `테이프 「${made[0].name}」를 만들었어요 (${made[0].count}곡)` : `테이프 ${made.length}개를 만들었어요`);
+    if (bad.length) msg.push("만들지 못함: " + bad.join(", "));
+    if (lost) msg.push(lost.message === "not found" ? "폰 앱을 업데이트해야 보낼 수 있어요" : "폰에 보내지 못했어요. 연결되면 다시 보내요");
+    if (msg.length) toast(msg.join(" · "));
+    if (made.length) await reloadLibrary();
+  })().catch(() => {}).then(() => { plSending = null; renderPlFileCard(); });
+  return plSending;
+}
+// 시작할 때 못 보낸 파일이 남아 있으면 보낸다 (boot.js가 폰에 붙은 뒤 부른다)
+function plFlushWhenReady() {
+  if (window.NativeBridge) return;
+  if (PLA()) plFlush(); else window.addEventListener("pywebviewready", () => plFlush(), { once: true });
 }
 
 // 싱크 가사 생성기: PC 프로그램 창(pywebview)에서만 보인다. 설치와 실행은 PC 쪽(pc/lyricsync.py)이 맡는다

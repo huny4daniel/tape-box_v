@@ -42,8 +42,6 @@ pages.home.after = () => {};
 const colState = { sort: "new", filter: "all" }; // 폰 DB(Prefs)의 값은 시작할 때 덮어쓴다
 // ── 카세트 = 재생목록(믹스테이프). 마스킹 테이프에 재생목록 이름, 아래 띠에 지금(마지막) 곡 ──
 const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19.5s-7-4.3-8.5-8.8C2.6 7.4 4.6 4.8 7.5 4.8c1.9 0 3.4 1 4.5 2.7 1.1-1.7 2.6-2.7 4.5-2.7 2.9 0 4.9 2.6 4 5.9-1.5 4.5-8.5 8.8-8.5 8.8z"/></svg>';
-// 테이프·상자 규칙은 js/tapes.js 한곳에 있다
-const { isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes } = TapeModel(L, U);
 // 상자 통째 재생: 곡마다 그 곡이 든 테이프를 기억해 두고(tapeOf), 재생 중인 테이프는 지금 곡이 든 테이프로 친다.
 // 곡이 다음 테이프로 넘어가면 재생 화면·홈·위젯의 테이프도, '들은 테이프' 기록도 그 테이프로 바뀐다
 function boxCtx(b) {
@@ -173,8 +171,9 @@ function recentTapeItem(x) {
   return cassette(x.pl, bandTrack(x.pl), { now, noHeart: true, attrs: `data-sys="${esc(x.key)}" title="「${esc(x.pl.name)}」 재생"` });
 }
 function playSysTape(k) {
-  const x = sysTape(k); if (!x) return;
   if (playingKey() === k) { if (!P.playing) P.play(); openFull(); return; }
+  reshuffleTape(k); // 랜덤 테이프는 새로 틀 때마다 새 30곡
+  const x = sysTape(k); if (!x) return;
   P.playList(x.pl.items.filter((id) => L.byId.has(id)), 0, x.ctx);
 }
 const tapeItem = (pl) => cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), attrs: `data-pl="${esc(pl.id)}" data-plid="${esc(pl.id)}"` });
