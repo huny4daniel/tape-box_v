@@ -51,6 +51,9 @@ public class TlsCertTest {
                     s.setSoTimeout(10_000);
                     s.startHandshake();
                     s.getOutputStream().write('k'); s.getOutputStream().flush();
+                    // 클라이언트가 닫을 때까지 읽고 나서 닫는다. 안 읽은 데이터(TLS 마무리 기록 등)를 남긴 채 닫으면
+                    // 운영체제가 연결을 강제로 끊어(RST) 클라이언트가 'k'를 못 받을 수 있다
+                    while (s.getInputStream().read() != -1) { }
                 } catch (Exception ignored) {}
             });
             t.start();
