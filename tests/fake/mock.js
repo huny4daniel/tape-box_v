@@ -74,6 +74,11 @@
     reportPlay: (id, ms, counted) => { const t = byId.get(id); t.listenedMs += ms; if (counted) { t.plays++; t.lastPlayed = Date.now(); t.firstPlayed = t.firstPlayed || Date.now(); } return ok({ ok: true }); },
     playlists: () => ok(playlists),
     createPlaylist: (name, items) => { const p = { id: "p" + Date.now(), name, desc: "", created: Date.now(), updated: Date.now(), items: items || [] }; playlists.push(p); savePl(); return ok(p); },
+    // 재생 동기화: 이 기기 하나뿐 (기다리는 요청은 답하지 않는다)
+    now: (ver, wait) => (wait ? new Promise(() => {}) : ok({ ver: 0, owner: "", ids: [], index: -1, pos: 0, playing: false, dur: 0, repeat: "off", cmds: [], cmdSeq: 0, metaVer: 0 })),
+    nowPublish: () => ok({}),
+    nowClaim: () => ok({}),
+    nowCmd: () => ok({}),
     updatePlaylist: (id, patch) => { const p = playlists.find((x) => x.id === id); Object.assign(p, patch, { updated: Date.now() }); savePl(); return ok(p); },
     deletePlaylist: (id) => { playlists = playlists.filter((x) => x.id !== id); savePl(); return ok({ ok: true }); },
     boxes: () => ok(boxes),

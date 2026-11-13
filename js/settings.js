@@ -173,9 +173,13 @@ function renderLsCard() {
   const head = lsResultsHead(LS);
   if (head !== lsHeadHtml) { $("#ls-results-head").innerHTML = head; lsHeadHtml = head; }
   // 펼친 목록의 곡 수가 바뀌면(생성 중이거나 정리했을 때) 다시 불러온다
-  const n = LSR.tab ? (LS.counts || {})[LSR.tab] || 0 : 0;
-  if (LSR.tab && !LSR.loading && (!LSR.items || LSR.items.length !== n)) lsLoadList();
+  const k = lsKind(), cnt = LS.counts || {};
+  const n = k === "all" ? LS_TABS.reduce((s, [t]) => s + (t === "notfound" ? 0 : cnt[t] || 0), 0) : k ? cnt[k] || 0 : 0;
+  if (k && !LSR.loading && (!LSR.items || LSR.items.length !== n)) lsLoadList();
+  renderLsFilter();
 }
+// 지금 보여 줄 결과 종류: 고른 탭, 탭 없이 검색 중이면 전체
+const lsKind = () => LSR.tab || (LSR.q.trim() ? "all" : null);
 function lsCard(st) {
   const r = st.run, sd = st.send, c = st.counts || {};
   const rows = [`<div><span>생성 도구 위치</span><b style="font-size:14px">${st.home ? esc(st.home) : "아직 고르지 않았어요"}</b></div>`];
@@ -250,21 +254,30 @@ function lsSync() {
   return lsToken().then((tok) => (tok ? pw.ls_sync(location.origin, tok) : null)).catch(() => null);
 }
 function lsLoadList() {
-  const pw = PWA(), tab = LSR.tab; if (!pw || !tab) return;
+  const pw = PWA(), tab = lsKind(); if (!pw || !tab) return;
   LSR.loading = true;
-  lsSync().then(() => pw.ls_results(tab)).then((items) => { if (LSR.tab === tab) { LSR.items = items || []; renderLsRows(); } })
+  lsSync().then(() => pw.ls_results(tab)).then((items) => { if (lsKind() === tab) { LSR.items = items || []; renderLsRows(); } })
     .catch(() => {}).then(() => { LSR.loading = false; });
 }
+// 검색창은 결과가 하나라도 있으면 늘 보인다 (탭을 고르지 않으면 모든 결과에서 찾는다). 입력 중에 다시 그리지 않게 한 번만 만든다
 function renderLsFilter() {
   const f = $("#ls-filter"); if (!f) return;
-  f.innerHTML = LSR.tab ? `<p class="ls-note">${LS_TAB_NOTE[LSR.tab]}</p><input class="ls-search" data-ls-filter placeholder="곡·아티스트·이유로 찾기" value="${esc(LSR.q)}">` : "";
+  if (!lsHeadHtml) { f.innerHTML = ""; return; }
+  if (!$("[data-ls-filter]", f)) f.innerHTML = `<input class="ls-search" type="search" data-ls-filter placeholder="결과에서 곡·아티스트·이유로 찾기 (초성도)" autocomplete="off" spellcheck="false" value="${esc(LSR.q)}"><p class="ls-note" data-ls-note></p>`;
+  const note = $("[data-ls-note]", f), txt = LSR.tab ? LS_TAB_NOTE[LSR.tab] : "";
+  note.textContent = txt; note.hidden = !txt;
+}
+// 곡 이름·아티스트·이유·경로에서 찾는다. 자음만 치면 초성으로
+function lsMatch(o, q) {
+  const hay = U.norm(`${o.title || ""} ${o.artist || ""} ${o.reason || ""} ${o.path || ""}`);
+  return U.isChoQuery(q) ? U.chosung(hay).includes(U.norm(q)) : hay.includes(U.norm(q));
 }
 function renderLsRows() {
   const box = $("#ls-rows"); if (!box) return;
-  if (!LSR.tab) { box.innerHTML = ""; return; }
+  if (!lsKind()) { box.innerHTML = ""; return; }
   if (!LSR.items) { box.innerHTML = `<p class="ls-note">불러오는 중…</p>`; return; }
-  const q = LSR.q.trim().toLowerCase();
-  const all = q ? LSR.items.filter((o) => `${o.title || ""} ${o.artist || ""} ${o.reason || ""}`.toLowerCase().includes(q)) : LSR.items;
+  const q = LSR.q.trim();
+  const all = q ? LSR.items.filter((o) => lsMatch(o, q)) : LSR.items;
   const shown = all.slice(0, LS_MAX);
   let top = "";
   if (LSR.tab === "skip" && !q) { // 이유별로 몇 곡인지
@@ -272,6 +285,7 @@ function renderLsRows() {
     top = `<p class="ls-note">${[...by].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k || "기타")} <b>${U.num(n)}</b>`).join(" · ")}</p>`;
   }
   if (LSR.tab === "check" && LSR.items.length) top += `<div class="ls-btns" style="margin-top:10px"><button class="btn ghost" data-act="ls-revert-all">확인 필요 곡 모두 되돌리기</button></div>`;
+  if (!LSR.tab && q) top = `<p class="ls-note">모든 결과에서 <b>${U.num(all.length)}</b>곡</p>`;
   box.innerHTML = top + (shown.length ? shown.map(lsRow).join("") : `<p class="ls-note">${q ? "찾는 곡이 없어요" : "아직 없어요"}</p>`)
     + (all.length > shown.length ? `<p class="ls-note">외 ${U.num(all.length - shown.length)}곡 — 검색으로 좁혀 보세요</p>` : "");
 }
@@ -288,7 +302,10 @@ function lsRow(o) {
 }
 document.addEventListener("input", (e) => {
   if (!e.target.matches || !e.target.matches("[data-ls-filter]")) return;
-  LSR.q = e.target.value; renderLsRows();
+  const before = lsKind();
+  LSR.q = e.target.value;
+  if (lsKind() !== before) { LSR.items = null; lsLoadList(); } // 탭 없이 검색을 시작하거나 지웠을 때
+  renderLsRows();
 });
 // 폰 연결이 필요 없는 작업은 토큰 없이 (PC 폴더 방식은 폰이 꺼져 있어도 만든다)
 const lsToken = () => API.token().then((t) => t.token).catch(() => "");
@@ -299,9 +316,9 @@ function lsAct(act, el) {
   const reloadList = () => { LSR.items = null; renderLsRows(); lsLoadList(); };
   if (act === "ls-tab") {
     const v = el.dataset.v;
-    LSR = { tab: LSR.tab === v ? null : v, items: null, q: "", loading: false };
+    LSR = { tab: LSR.tab === v ? null : v, items: null, q: LSR.q, loading: false };
     lsHeadHtml = ""; renderLsCard(); renderLsFilter(); renderLsRows();
-    if (LSR.tab) lsLoadList();
+    if (lsKind()) lsLoadList();
     return;
   }
   if (act === "ls-revert" || act === "ls-keep" || act === "ls-retry" || act === "ls-revert-all") {
@@ -323,7 +340,7 @@ function lsAct(act, el) {
     if (!confirm("결과 기록을 모두 지우고 처음부터 다시 할까요?\n\n· 결과 목록과 PC에 남긴 가사 사본을 지워요\n· 폰에 저장된 만든 싱크 가사도 모두 지워요 (파일에 원래 있던 가사는 그대로예요)\n· 생성 도구와 음원 파일은 지우지 않아요")) return;
     lsToken().then((tok) => pw.ls_reset(location.origin, tok)).then((res) => {
       if (res && res.ok) toast(res.phone ? "결과 기록과 폰의 만든 싱크 가사를 지웠어요" : "결과 기록을 지웠어요. 폰에 연결되지 않아 폰의 만든 싱크 가사는 지우지 못했어요");
-      lyrCache.clear(); LSR = { tab: null, items: null, q: "", loading: false }; lsHeadHtml = ""; renderLsFilter(); renderLsRows(); done(res);
+      lyrCache.clear(); LSR = { tab: null, items: null, q: "", loading: false }; lsHeadHtml = ""; $("#ls-filter").innerHTML = ""; renderLsFilter(); renderLsRows(); done(res);
     }, fail);
     return;
   }

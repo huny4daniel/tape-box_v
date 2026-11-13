@@ -256,6 +256,25 @@ def worth_retry(first):
     return bool(a) and sum(1 for x in a if x is not None) >= ANCHOR_MIN * len(a)
 
 
+LETTERS_MIN = 0.9  # 정렬 결과에 원래 가사 글자가 이만큼은 남아 있어야 쓴다 (폰도 비슷한 기준으로 원본과 비교한다)
+
+
+def letters(s):
+    """공백·문장부호를 뺀 글자 수"""
+    return sum(1 for c in s if c.isalnum())
+
+
+def lost_lines(path, plain):
+    """예전에 만든 LRC에 원래 가사 글자가 많이 빠져 있는지 (이전 버전은 줄이 빠져도 확인 필요로 보냈다)"""
+    import re
+    try:
+        with open(path, encoding="utf-8") as f:
+            got = letters(" ".join(re.sub(r"^(\[[^\]]*\])+", "", ln.strip()) for ln in f))
+    except OSError:
+        return False
+    return bool(plain) and got < letters(plain) * LETTERS_MIN
+
+
 def align(model, audio, text, language, opts=TRIES[0]):
     lines = [l.strip() for l in text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if l.strip()]
     if not lines:
@@ -273,6 +292,10 @@ def align(model, audio, text, language, opts=TRIES[0]):
     issues = []
     if len(segs) != len(lines):
         issues.append(f"줄 수가 달라짐 ({len(lines)} → {len(segs)})")
+    # 원래 가사의 글이 정렬 결과에 다 들어 있지 않으면 실패로 (확인 필요로 보내면 폰에서 빠진 줄을 볼 수 없다)
+    got, want = letters(" ".join(s.text for s in segs)), letters(" ".join(lines))
+    if got < want * LETTERS_MIN:
+        return None, issues + [f"가사 일부가 빠짐 ({want}자 중 {got}자)"], []
     return judge([[s.start, s.end, s.text.strip()] for s in segs], issues)
 
 
@@ -414,7 +437,7 @@ class Run:
         직접 지키기로 정한 곡은 여기 오지 않는다"""
         p = self.last.get(info["id"]) or {}
         lang = song_language(plain, self.language)
-        if p.get("lang", self.language) != lang:
+        if p.get("lang", self.language) != lang or lost_lines(made_path(self.home, info["id"]), plain):
             return self.make(audio, plain, info)
         if p.get("status") != "check":
             emit(type="track", status="skip", reason="이미 만든 곡", **info)
@@ -591,6 +614,10 @@ def run_phone(home, server, token, model_name, language):
             if prev == "rejected":
                 emit(type="track", status="skip", reason="되돌린 곡", **info)
                 continue
+            plain = lyr.get("plain")
+            # 줄이 빠진 채 만든 예전 결과는 버리고 다시 만든다 (폰도 그런 가사는 원본으로 보여 준다)
+            if os.path.exists(saved) and lost_lines(saved, plain):
+                os.remove(saved)
             # 전에 만든 적 있으면 다시 만들지 않고 그대로 보낸다 (폰 앱 데이터가 지워진 경우)
             if os.path.exists(saved):
                 with open(saved, encoding="utf-8") as f:
@@ -599,7 +626,6 @@ def run_phone(home, server, token, model_name, language):
                 if prev not in MADE:
                     run.record(status="restored", reason="", **info)
                 continue
-            plain = lyr.get("plain")
             if not plain or not plain.strip():
                 run.skip("가사가 없음", info)
                 continue

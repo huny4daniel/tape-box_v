@@ -230,6 +230,8 @@ class LyricSync:
         if kind == "notfound":
             nf = set(self._json("notfound.json", []))
             items = [o for k, o in last.items() if k in nf and o.get("status") in MADE]
+        elif kind == "all":  # 결과 목록 검색 (탭을 고르지 않았을 때)
+            items = [o for o in last.values() if KIND.get(o.get("status"))]
         else:
             items = [o for o in last.values() if KIND.get(o.get("status")) == kind]
         items.sort(key=lambda o: -o.get("at", 0))

@@ -73,10 +73,11 @@ public class Id3Lyrics {
                 }
                 p = start + fsz;
             }
-            if (sylt != null && !sylt.isEmpty()) res.synced = sylt;
-            else if (uslt != null) {
+            if (hasText(sylt)) res.synced = sylt; // 글이 빈 시간 가사 프레임은 건너뛰고 일반 가사를 쓴다
+            if (uslt != null) {
                 List<Line> lrc = parseLrc(uslt);
-                if (lrc != null) res.synced = lrc; else res.plain = uslt;
+                if (hasText(lrc)) { if (res.synced == null) res.synced = lrc; }
+                else res.plain = uslt;
             }
         } catch (Exception e) {
             Log.w(TAG, "read failed: " + uri, e);
@@ -151,6 +152,31 @@ public class Id3Lyrics {
         }
         out.sort((x, y) -> Long.compare(x.ms, y.ms));
         return out;
+    }
+
+    /** 글자가 있는 줄이 하나라도 있는지 (시간만 있고 글이 빈 가사는 가사로 치지 않는다) */
+    static boolean hasText(List<Line> lines) {
+        if (lines == null) return false;
+        for (Line l : lines) if (l.text != null && !l.text.trim().isEmpty()) return true;
+        return false;
+    }
+
+    /** 공백·문장부호를 뺀 글자 수 (만든 싱크 가사에 원본 가사가 다 들어 있는지 비교할 때) */
+    static int letters(List<Line> lines) {
+        int n = 0;
+        for (Line l : lines) n += letters(l.text);
+        return n;
+    }
+
+    static int letters(String s) {
+        if (s == null) return 0;
+        int n = 0;
+        for (int i = 0; i < s.length(); ) {
+            int c = s.codePointAt(i);
+            if (Character.isLetterOrDigit(c)) n++;
+            i += Character.charCount(c);
+        }
+        return n;
     }
 
     private static final Pattern TIME = Pattern.compile("\\[(\\d{1,3}):(\\d{1,2})(?:[.:](\\d{1,3}))?\\]");

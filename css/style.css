@@ -490,6 +490,14 @@ body.no-bar #playerbar { display: none; }
 .pb-now > div { min-width: 0; }
 .pb-now b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pb-now span { display: block; color: var(--text-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 다른 기기에서 소리가 날 때 재생 버튼 위의 작은 글씨 */
+.pb-play, .pb-mini-play, .np-play { position: relative; }
+.pb-play[data-remote]:not([data-remote=""])::before, .pb-mini-play[data-remote]:not([data-remote=""])::before, .np-play[data-remote]:not([data-remote=""])::before {
+  content: attr(data-remote); position: absolute; left: 50%; bottom: calc(100% + 3px); transform: translateX(-50%);
+  white-space: nowrap; font-size: 10.5px; font-weight: 700; letter-spacing: -.01em; color: var(--accent); pointer-events: none;
+}
+.np-play[data-remote]:not([data-remote=""])::before { font-size: 12px; bottom: calc(100% + 6px); }
+.pb-mini-play[data-remote]:not([data-remote=""])::before { font-size: 9.5px; bottom: calc(100% - 9px); } /* 폰 미니 재생바: 바 안쪽에 들어오게 */
 .pb-now a:hover { text-decoration: underline; color: var(--text); }
 .pb-center { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .pb-ctrl { display: flex; align-items: center; gap: 18px; }

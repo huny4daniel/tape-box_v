@@ -200,6 +200,22 @@ public class WebServer extends NanoHTTPD {
                 if (counted) PlaylistExport.schedule(app); // 이번 달 히스토리 테이프가 바뀌었을 수 있다
                 return ok();
             }
+            case "now": { // PC·폰 재생 동기화 (NowSync)
+                if (arg == null && m == Method.GET) {
+                    String v = first(s, "ver");
+                    long since = v == null ? -1 : Long.parseLong(v);
+                    return json(Response.Status.OK, ("1".equals(first(s, "wait")) ? app.now.await(since, 20_000) : app.now.snapshot()).toString());
+                }
+                if (m != Method.POST) break;
+                JSONObject b = body(s);
+                String dev = b.optString("dev", "");
+                if (dev.isEmpty()) return json(Response.Status.BAD_REQUEST, "{\"error\":\"no dev\"}");
+                if (arg == null) app.now.publish(dev, b);
+                else if (arg.equals("claim")) app.now.claim(dev, b);
+                else if (arg.equals("cmd")) app.now.command(dev, b);
+                else break;
+                return json(Response.Status.OK, app.now.snapshot().toString());
+            }
             case "history": // 히스토리 상자: 달마다 가장 많이 들은 30곡
                 return json(Response.Status.OK, app.db.monthlyTop(30).toString());
             case "sync-files": { // 테이프 저장 폴더에서 밖에서 고친 파일을 지금 반영한다 (화면이 앱으로 돌아왔을 때 등)

@@ -93,6 +93,7 @@ async function boot() {
   P.on("native", (m) => { if (m.type === "exportdir") { if (route().name === "settings") rerender(); toast("고른 폴더에 테이프를 저장해요"); } if (m.type === "library") reloadLibrary(); if (m.type === "resume") reloadLibrary().catch(() => {}); });
   renderSidebar();
   P.resume();
+  P.startSync(); // 다른 기기(PC·폰)에서 듣던 곡을 이어 보여 준다
   render();
   onState();
   renderPanel();

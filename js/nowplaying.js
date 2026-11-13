@@ -3,6 +3,8 @@
 
 // ───────── 재생 막대 ─────────
 const bar = $("#playerbar");
+// 다른 기기에서 소리가 나고 있으면 재생 버튼 위에 작은 글씨로 (멈춤은 여기서도 되고, 멈춘 뒤 재생을 누르면 이 기기에서 소리가 난다)
+const remoteTag = () => (P && P.remoteName ? P.remoteName + "에서 재생 중" : "");
 function renderBar() {
   const t = P.current;
   document.body.classList.toggle("no-bar", !t); // 고른 곡이 없으면 아래 재생바를 숨기고 그 자리를 화면에 돌려준다
@@ -15,7 +17,7 @@ function renderBar() {
       <div class="pb-ctrl">
         <button class="icon-btn${P.shuffle ? " on" : ""}" data-act="shuffle" title="셔플"><i class="ic ic-shuffle"></i></button>
         <button class="icon-btn" data-act="prev" title="이전"><i class="ic ic-prev"></i></button>
-        <button class="pb-play" data-act="toggle" title="재생/일시정지"><i class="ic ${playIc}"></i></button>
+        <button class="pb-play" data-act="toggle" title="재생/일시정지" data-remote="${remoteTag()}"><i class="ic ${playIc}"></i></button>
         <button class="icon-btn" data-act="next" title="다음"><i class="ic ic-next"></i></button>
         <button class="icon-btn${P.repeat !== "off" ? " on" : ""}" data-act="repeat" title="반복"><i class="ic ${P.repeat === "one" ? "ic-repeat1" : "ic-repeat"}"></i></button>
       </div>
@@ -27,7 +29,7 @@ function renderBar() {
     </div>
     <div class="pb-mini">
       <button class="icon-btn" data-act="prev" title="이전"><i class="ic ic-prev"></i></button>
-      <button class="icon-btn pb-mini-play" data-act="toggle" title="재생/일시정지"><i class="ic ${playIc}"></i></button>
+      <button class="icon-btn pb-mini-play" data-act="toggle" title="재생/일시정지" data-remote="${remoteTag()}"><i class="ic ${playIc}"></i></button>
       <button class="icon-btn" data-act="next" title="다음"><i class="ic ic-next"></i></button>
       <button class="icon-btn" data-act="mini-queue" title="대기열"><i class="ic ic-queue"></i></button>
     </div>
@@ -85,6 +87,7 @@ function getLyrics(id) {
 let lyrState = null; // {id, data, boxes:[el]}
 function lyricsHtml(d) {
   if (d && d.failed) return `<div class="lyrics plain"><p class="note" style="font-size:16px;margin-top:20px">폰과 연결이 끊겨 가사를 불러오지 못했어요.</p><p class="note"><button class="btn ghost" data-act="lyr-retry">다시 불러오기</button></p></div>`;
+  if (d && d.synced && !d.synced.some((l) => String(l[1] || "").trim())) d = Object.assign({}, d, { synced: null }); // 시간만 있고 글이 없으면 일반 가사로
   if (!d || (!d.synced && !d.plain)) return `<div class="lyrics plain"><p class="note" style="font-size:16px;margin-top:20px">이 곡에는 가사가 없어요.</p></div>`;
   if (d.synced) return `<div class="lyrics">${d.synced.map(([ms, text], i) => `<p class="ln${text.trim() ? "" : " blank"}" data-ms="${ms}" data-k="${i}"><span>${lyrText(text) || "♪"}</span></p>`).join("")}</div>`;
   return `<div class="lyrics plain">${d.plain.split(/\r?\n/).map((l) => `<p class="ln">${lyrText(l) || "&nbsp;"}</p>`).join("")}</div>`;
@@ -428,6 +431,7 @@ function setMemo(on) {
 }
 function syncFullControls() {
   if (fp.hidden) return;
+  const pb = $(".np-play", fp); if (pb) pb.dataset.remote = remoteTag();
   const pi = $(".np-play .ic", fp); if (pi) pi.className = "ic " + (P.playing ? "ic-pause" : "ic-play");
   const sh = $('[data-np="shuffle"]', fp); if (sh) sh.classList.toggle("on", P.shuffle);
   const rp = $('[data-np="repeat"]', fp);

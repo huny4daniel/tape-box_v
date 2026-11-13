@@ -520,7 +520,8 @@ pages.track = (id) => {
 pages.track.after = (id) => {
   getLyrics(id).then((d) => {
     const el = $("#track-lyrics"); if (!el) return;
-    const text = d && d.synced ? d.synced.map((l) => l[1]).join("\n") : d && d.plain;
+    const syn = d && d.synced ? d.synced.map((l) => l[1]).join("\n").trim() : "";
+    const text = syn || (d && d.plain);
     el.textContent = text ? text.trim() : d && d.failed ? "폰과 연결이 끊겨 가사를 불러오지 못했어요" : "가사가 없어요";
     el.classList.toggle("dimmer", !text);
   });

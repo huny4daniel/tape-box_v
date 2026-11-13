@@ -32,6 +32,8 @@ jobs:
         run: python tests/pc_smoke.py
       - name: UI smoke (fake data, PC and phone sizes)
         run: python tests/ui_smoke.py
+      - name: 재생 동기화 시험
+        run: python tests/sync_test.py
       - name: Tape/box model values
         run: node --test tests/model_test.js
 

@@ -16,6 +16,7 @@ public class App extends Application {
     public Library library;
     public ArtCache art;
     public WebServer server;
+    public final NowSync now = new NowSync(); // PC·폰 재생 동기화
     public final ExecutorService io = Executors.newSingleThreadExecutor();
     public final Handler main = new Handler(Looper.getMainLooper());
 

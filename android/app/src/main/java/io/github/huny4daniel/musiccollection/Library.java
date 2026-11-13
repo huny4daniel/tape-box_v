@@ -184,16 +184,20 @@ public class Library {
         JSONObject res = new JSONObject();
         String[] made = t == null ? null : db.lyrics(id);
         List<Id3Lyrics.Line> madeLines = made == null ? null : Id3Lyrics.parseLrc(made[0]);
-        if (madeLines != null && !madeLines.isEmpty()) {
+        Id3Lyrics.Result r = t == null ? null : Id3Lyrics.read(ctx, t.uri());
+        String plain = r == null || r.plain == null || r.plain.trim().isEmpty() ? null : r.plain;
+        // 만든 싱크 가사는 원본 가사가 거의 다 들어 있을 때만 쓴다 (정렬하다 줄이 빠진 것이면 원본을 보여 준다)
+        boolean madeOk = madeLines != null && Id3Lyrics.hasText(madeLines)
+                && (plain == null || Id3Lyrics.letters(madeLines) >= Id3Lyrics.letters(plain) * 0.85);
+        if (madeOk) {
             JSONArray a = new JSONArray();
             for (Id3Lyrics.Line l : madeLines) a.put(new JSONArray().put(l.ms).put(l.text));
             res.put("synced", a);
-            res.put("plain", JSONObject.NULL);
+            res.put("plain", plain == null ? JSONObject.NULL : plain); // 화면이 싱크 가사를 못 쓸 때를 위해 원본도 함께
             res.put("source", made[1] == null ? "made" : made[1]);
             res.put("check", "1".equals(made[2])); // 확인 필요 곡: 가사 화면에 되돌리기 버튼이 보인다
         } else if (t != null) {
-            Id3Lyrics.Result r = Id3Lyrics.read(ctx, t.uri());
-            if (r.synced != null && !r.synced.isEmpty()) {
+            if (r.synced != null && Id3Lyrics.hasText(r.synced)) {
                 JSONArray a = new JSONArray();
                 for (Id3Lyrics.Line l : r.synced) a.put(new JSONArray().put(l.ms).put(l.text));
                 res.put("synced", a);

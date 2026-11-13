@@ -31,6 +31,11 @@
     prefs: () => req("GET", "/api/prefs"), // 기기를 가리지 않는 화면 상태 (js/prefs.js)
     setPrefs: (patch) => req("PUT", "/api/prefs", patch), // 바뀐 부분만. 폰이 합쳐서 전체를 돌려준다
     resetRecords: (what) => req("POST", "/api/reset-records", what), // { plays, favs, history }
+    // PC·폰 재생 동기화: 지금 재생 상태 (wait면 바뀔 때까지 최대 20초 기다림), 상태 알리기, 소리 가져오기, 조작 보내기
+    now: (ver, wait) => req("GET", "/api/now?ver=" + (ver == null ? -1 : ver) + (wait ? "&wait=1" : "")),
+    nowPublish: (b) => req("POST", "/api/now", b),
+    nowClaim: (b) => req("POST", "/api/now/claim", b),
+    nowCmd: (b) => req("POST", "/api/now/cmd", b),
     reportPlay: (id, listenedMs, counted) => req("POST", "/api/plays", { id, listenedMs: Math.round(listenedMs), counted: !!counted }),
     playlists: () => req("GET", "/api/playlists"),
     createPlaylist: (name, items) => req("POST", "/api/playlists", { name, items: items || [] }),
