@@ -64,6 +64,9 @@ android {
 
     sourceSets["main"].assets.srcDir(webAssetsDir)
 
+    // DB 규칙 시험 (src/test): 폰 없이 PC·CI에서 Robolectric으로 SQLite를 돌린다
+    testOptions { unitTests.isIncludeAndroidResources = true }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -76,6 +79,9 @@ dependencies {
     implementation("androidx.activity:activity:1.9.3")
     implementation("androidx.core:core:1.13.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }
 
 tasks.named("preBuild") { dependsOn(syncWebAssets) }

@@ -26,6 +26,9 @@
     revertLyrics: (id) => req("DELETE", "/api/lyrics/" + encodeURIComponent(id) + "?reject=1"),
     setTrack: (id, patch) => req("POST", "/api/track/" + encodeURIComponent(id), patch),
     history: () => req("GET", "/api/history"), // 히스토리 상자: [{ month: "2026-11", items: [곡 id…] }]
+    syncFiles: () => req("POST", "/api/sync-files"), // 테이프 저장 폴더에서 밖에서 고친 파일을 반영 → { changed }
+    prefs: () => req("GET", "/api/prefs"), // 기기를 가리지 않는 화면 상태 (js/prefs.js)
+    setPrefs: (patch) => req("PUT", "/api/prefs", patch), // 바뀐 부분만. 폰이 합쳐서 전체를 돌려준다
     resetRecords: (what) => req("POST", "/api/reset-records", what), // { plays, favs, history }
     reportPlay: (id, listenedMs, counted) => req("POST", "/api/plays", { id, listenedMs: Math.round(listenedMs), counted: !!counted }),
     playlists: () => req("GET", "/api/playlists"),

@@ -202,6 +202,18 @@ public class WebServer extends NanoHTTPD {
             }
             case "history": // 히스토리 상자: 달마다 가장 많이 들은 30곡
                 return json(Response.Status.OK, app.db.monthlyTop(30).toString());
+            case "sync-files": { // 테이프 저장 폴더에서 밖에서 고친 파일을 지금 반영한다 (화면이 앱으로 돌아왔을 때 등)
+                if (m != Method.POST) break;
+                boolean changed = false;
+                try { changed = PlaylistExport.pull(app); } catch (Exception e) { android.util.Log.w("WebServer", "pull", e); }
+                if (changed && PlaylistExport.auto(app.db)) PlaylistExport.schedule(app); // 이름·자리를 맞춰 다시 쓴다
+                return json(Response.Status.OK, new JSONObject().put("changed", changed).toString());
+            }
+            case "prefs": { // 기기를 가리지 않는 화면 상태 (최근 들은 테이프 · 숨긴 상자 · 정렬)
+                if (m == Method.GET) return json(Response.Status.OK, app.db.prefs().toString());
+                if (m == Method.PUT || m == Method.POST) return json(Response.Status.OK, app.db.mergePrefs(body(s)).toString());
+                break;
+            }
             case "reset-records": { // 설정 → 기록 초기화 (들은 횟수 · 아끼는 곡 · 최근 들은 기록 중 고른 것)
                 if (m != Method.POST) break;
                 JSONObject b = body(s);

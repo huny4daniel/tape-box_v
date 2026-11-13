@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -28,6 +29,14 @@ import java.util.concurrent.Executors;
  *  - 이름을 바꾸거나 상자를 옮기면 파일도 옮기고, 테이프·상자를 지우면 파일·빈 폴더도 지운다
  *  - 파일마다 "#TAPEBOX:" 표시를 넣어, 이 앱의 가져오기가 자기가 만든 파일을 다시 가져오지 않게 한다
  *  - 어떤 파일을 만들었는지 기록(K_MAP)해 두고 그 파일만 고치거나 지운다 (폴더의 다른 파일은 건드리지 않는다)
+ *
+ * 양방향: 저장 폴더의 파일을 밖에서 고치면(다른 앱·PC·파일 관리자) 앱의 테이프에도 반영한다 (pull)
+ *  - 곡 목록·순서를 고치면 → 테이프의 곡 / 파일 이름이나 #PLAYLIST 줄을 고치면 → 테이프 이름
+ *  - 다른 하위 폴더로 옮기면 → 그 이름의 상자로 (폴더 바로 아래로 옮기면 상자에서 뺀다) / 상자 폴더 이름을 바꾸면 → 상자 이름
+ *  - 새 재생목록 파일을 넣으면 → 새 테이프 (하위 폴더에 넣었으면 그 상자에)
+ *  - 파일을 지우면 → 테이프는 지우지 않고 파일을 다시 만든다 (폴더가 잠깐 안 보이는 것만으로 테이프가 사라지지 않게. 테이프는 앱에서 지운다)
+ *  - 앱과 파일이 둘 다 바뀌었으면 → 나중에 바뀐 쪽을 따른다 (테이프 단위)
+ *  - 히스토리 상자 파일은 기록에서 만드는 것이라 밖에서 고쳐도 다음 저장 때 되돌아간다
  */
 final class PlaylistExport {
     private static final String TAG = "PlaylistExport";
@@ -60,6 +69,14 @@ final class PlaylistExport {
                 try { sync(app); } catch (Exception e) { Log.w(TAG, "sync", e); }
             });
             H.postDelayed(pending, 1500);
+        });
+    }
+
+    /** 밖에서 고친 파일을 곧 앱에 반영한다 (앱으로 돌아왔을 때 등). 바뀐 게 있으면 화면에 알리고 파일을 다시 맞춘다 */
+    static void pullSoon(App app) {
+        if (app.db.get(K_DIR, "").isEmpty()) return;
+        EX.execute(() -> {
+            try { if (pull(app)) { app.emit("{\"type\":\"library\"}"); if (auto(app.db)) sync(app); } } catch (Exception e) { Log.w(TAG, "pull", e); }
         });
     }
 
@@ -97,21 +114,203 @@ final class PlaylistExport {
         return b.toString();
     }
 
+    /** 상자 id → 그 상자의 폴더 이름 (상자 이름이 겹치면 뒤에 번호). 순서는 상자 순서 */
+    private static Map<String, String> boxFolders(JSONArray boxes) throws Exception {
+        Map<String, String> out = new LinkedHashMap<>();
+        Set<String> used = new HashSet<>();
+        for (int i = 0; i < boxes.length(); i++) {
+            JSONObject bx = boxes.getJSONObject(i);
+            String f = safe(bx.optString("name")), base = f;
+            for (int n = 2; used.contains(f.toLowerCase(Locale.ROOT)); n++) f = base + " (" + n + ")";
+            used.add(f.toLowerCase(Locale.ROOT));
+            out.put(bx.getString("id"), f);
+        }
+        return out;
+    }
+
+    private static String histFolderName(Map<String, String> boxFolders) {
+        Set<String> used = new HashSet<>();
+        for (String f : boxFolders.values()) used.add(f.toLowerCase(Locale.ROOT));
+        String f = "히스토리 상자", base = f;
+        for (int n = 2; used.contains(f.toLowerCase(Locale.ROOT)); n++) f = base + " (" + n + ")";
+        return f;
+    }
+
+    private static String hash(String text) { return Integer.toHexString(text.replace("\r\n", "\n").hashCode()); }
+
+    /** 저장 폴더에 있는 재생목록 파일 하나 */
+    private static final class Found {
+        String doc, folder, file, text, mark; long modified;
+        String path() { return folder + "/" + file; }
+    }
+
+    private static void listFiles(ContentResolver cr, Uri tree, String parent, String folder, List<Found> out, List<String[]> dirsOut) {
+        try (Cursor c = cr.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent), new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_LAST_MODIFIED}, null, null, null)) {
+            if (c == null) return;
+            while (c.moveToNext()) {
+                String doc = c.getString(0), name = c.getString(1);
+                if (doc == null || name == null || name.startsWith(".")) continue;
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) { if (dirsOut != null) dirsOut.add(new String[]{doc, name}); continue; }
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (!lower.endsWith(".m3u8") && !lower.endsWith(".m3u")) continue;
+                Found f = new Found();
+                f.doc = doc; f.folder = folder; f.file = name; f.modified = c.isNull(3) ? 0 : c.getLong(3);
+                out.add(f);
+            }
+        }
+    }
+
+    private static String stripExt(String f) { int i = f.lastIndexOf('.'); return i > 0 ? f.substring(0, i) : f; }
+    private static String baseOf(String path) { return stripExt(path.substring(path.lastIndexOf('/') + 1)); }
+
+    /** 파일에 적힌 #PLAYLIST: 이름 */
+    private static String plName(String text) {
+        for (String line : text.split("\\r?\\n|\\r")) if (line.startsWith("#PLAYLIST:")) return line.substring(10).trim();
+        return null;
+    }
+
+    /**
+     * 밖에서 고친 파일을 앱의 테이프·상자에 반영한다. 바뀐 게 있으면 true.
+     * 이 앱이 마지막으로 쓴 내용(hash)·자리(path)와 다른 파일만 본다.
+     */
+    static synchronized boolean pull(App app) throws Exception {
+        String dir = app.db.get(K_DIR, "");
+        if (dir.isEmpty() || !app.library.isScanned()) return false;
+        ContentResolver cr = app.getContentResolver();
+        Uri tree = Uri.parse(dir);
+        String rootDoc = DocumentsContract.getTreeDocumentId(tree);
+        Db db = app.db;
+
+        List<Found> found = new java.util.ArrayList<>();
+        List<String[]> subdirs = new java.util.ArrayList<>();
+        try { listFiles(cr, tree, rootDoc, "", found, subdirs); }
+        catch (Exception e) { Log.w(TAG, "list", e); return false; } // 폴더가 안 보이면 아무것도 바꾸지 않는다
+        Map<String, String> boxFolder = boxFolders(db.boxes());
+        String histFolder = histFolderName(boxFolder);
+        Set<String> diskFolders = new HashSet<>();
+        for (String[] d : subdirs) {
+            diskFolders.add(d[1].toLowerCase(Locale.ROOT));
+            if (d[1].equalsIgnoreCase(histFolder)) continue;
+            try { listFiles(cr, tree, d[0], d[1], found, null); } catch (Exception e) { Log.w(TAG, "list " + d[1], e); }
+        }
+
+        JSONObject map = new JSONObject(db.get(K_MAP, "{}"));
+        JSONObject files = map.optJSONObject("files"); if (files == null) files = new JSONObject();
+        // 내용을 읽고 #TAPEBOX: 표시를 찾는다. 같은 표시가 둘 이상이면(파일을 복사함) 기록된 자리의 것이 원본, 나머지는 새 테이프
+        Map<String, Found> byMark = new HashMap<>();
+        List<Found> fresh = new java.util.ArrayList<>();
+        for (Found f : found) {
+            try (java.io.InputStream in = cr.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, f.doc))) { f.text = PlaylistImport.readText(in); }
+            catch (Exception e) { Log.w(TAG, "read " + f.path(), e); continue; }
+            if (f.text == null) continue;
+            for (String line : f.text.split("\\r?\\n|\\r")) if (line.startsWith(MARK)) { f.mark = line.substring(MARK.length()).trim(); break; }
+            if (f.mark == null || f.mark.startsWith("hist-")) { if (f.mark == null) fresh.add(f); continue; }
+            Found had = byMark.get(f.mark);
+            JSONObject e = files.optJSONObject(f.mark);
+            boolean orig = e != null && f.path().equals(e.optString("path"));
+            if (had == null) byMark.put(f.mark, f);
+            else if (orig) { fresh.add(had); byMark.put(f.mark, f); }
+            else fresh.add(f);
+        }
+
+        boolean changed = false, mapDirty = false;
+        List<Track> all = app.library.all();
+        for (Map.Entry<String, Found> en : byMark.entrySet()) {
+            String id = en.getKey(); Found f = en.getValue();
+            JSONObject pl = db.playlist(id);
+            if (pl == null) { fresh.add(f); continue; } // 앱에 없는 테이프의 파일(다른 기기에서 가져온 것 등) → 새 테이프로
+            JSONObject e = files.optJSONObject(id);
+            String h = hash(f.text);
+            if (e != null && h.equals(e.optString("hash")) && f.path().equals(e.optString("path"))) continue; // 이 앱이 쓴 그대로
+            // 둘 다 바뀌었으면 나중에 바뀐 쪽: 앱이 더 나중이면 그대로 두고 다음 저장 때 파일을 덮어쓴다
+            long at = e == null ? 0 : e.optLong("at", 0), updated = pl.optLong("updated", 0);
+            if (updated > at && updated >= f.modified) {
+                // 기록이 없던 파일(폴더를 새로 고른 뒤 등)이면 자리만 적어 두어, 다음 저장 때 새 파일을 또 만들지 않고 이 파일을 덮어쓰게
+                if (e == null) { files.put(id, new JSONObject().put("doc", f.doc).put("path", f.path()).put("hash", "").put("at", 0)); mapDirty = true; }
+                continue;
+            }
+
+            JSONObject patch = new JSONObject();
+            String fileName = baseOf(f.path()), inside = plName(f.text);
+            if (e != null && !fileName.equals(baseOf(e.optString("path")))) patch.put("name", fileName); // 파일 이름을 바꿈
+            else if (inside != null && !inside.isEmpty() && !inside.equals(pl.optString("name"))) patch.put("name", inside); // #PLAYLIST 줄을 고침
+            else if (e == null && !safe(pl.optString("name")).equals(fileName.replaceAll(" \\(\\d+\\)$", ""))) patch.put("name", fileName);
+            if (e == null || !h.equals(e.optString("hash"))) {
+                List<String> items = PlaylistImport.parseTapeText(f.text, all);
+                // 지금 컬렉션에 없는 곡은 파일에 쓰지 않았으므로, 있는 곡만 비교해 다를 때만 바꾼다 (없는 곡이 지워지지 않게)
+                JSONArray cur = pl.optJSONArray("items"); List<String> present = new java.util.ArrayList<>();
+                if (cur != null) for (int i = 0; i < cur.length(); i++) if (app.library.get(cur.optString(i)) != null) present.add(cur.optString(i));
+                if (!items.equals(present)) patch.put("items", new JSONArray(items));
+            }
+            if (patch.length() > 0) { db.updatePlaylist(id, patch); changed = true; }
+            if (placeInBox(db, id, f.folder, boxFolder, diskFolders)) { changed = true; boxFolder = boxFolders(db.boxes()); }
+            // 이 파일을 반영했다고 적어 둔다 (이 앱이 다시 쓸 때까지 같은 내용을 또 반영하지 않게)
+            files.put(id, new JSONObject().put("doc", f.doc).put("path", f.path()).put("hash", h).put("at", System.currentTimeMillis()));
+        }
+        // 새로 넣은 재생목록 파일 → 새 테이프. 그 파일 자리를 기록해 두어 다음 저장 때 같은 파일에 #TAPEBOX: 표시를 넣어 쓴다
+        for (Found f : fresh) {
+            if (f.folder.equalsIgnoreCase(histFolder)) continue;
+            List<String> items = PlaylistImport.parseTapeText(f.text, all);
+            String name = baseOf(f.path());
+            if (items.isEmpty() || name.trim().isEmpty()) continue;
+            JSONObject made = db.createPlaylist(name.trim(), new JSONArray(items));
+            String id = made.getString("id");
+            placeInBox(db, id, f.folder, boxFolder, diskFolders);
+            boxFolder = boxFolders(db.boxes());
+            files.put(id, new JSONObject().put("doc", f.doc).put("path", f.path()).put("hash", hash(f.text)).put("at", System.currentTimeMillis()));
+            changed = true;
+        }
+        if (changed || mapDirty) { map.put("files", files); db.put(K_MAP, map.toString()); }
+        return changed;
+    }
+
+    /** 파일이 있는 폴더에 맞춰 테이프의 상자를 맞춘다. 바뀌면 true */
+    private static boolean placeInBox(Db db, String id, String folder, Map<String, String> boxFolder, Set<String> diskFolders) throws Exception {
+        String curBox = null;
+        JSONArray boxes = db.boxes();
+        for (int i = 0; i < boxes.length() && curBox == null; i++) {
+            JSONArray its = boxes.getJSONObject(i).optJSONArray("items");
+            if (its != null) for (int k = 0; k < its.length(); k++) if (id.equals(its.optString(k))) { curBox = boxes.getJSONObject(i).getString("id"); break; }
+        }
+        if (folder.isEmpty()) { // 폴더 바로 아래 = 상자 밖
+            if (curBox == null) return false;
+            JSONObject b = db.box(curBox); JSONArray keep = new JSONArray(), its = b.getJSONArray("items");
+            for (int k = 0; k < its.length(); k++) if (!id.equals(its.optString(k))) keep.put(its.get(k));
+            db.updateBox(curBox, new JSONObject().put("items", keep));
+            return true;
+        }
+        if (curBox != null && folder.equalsIgnoreCase(boxFolder.get(curBox))) return false; // 이미 그 상자
+        for (Map.Entry<String, String> en : boxFolder.entrySet()) if (folder.equalsIgnoreCase(en.getValue())) { // 그 폴더의 상자로 옮긴다
+            JSONObject b = db.box(en.getKey()); JSONArray its = b.getJSONArray("items"); its.put(id);
+            db.updateBox(en.getKey(), new JSONObject().put("items", its)); // 다른 상자에서는 저절로 빠진다
+            return true;
+        }
+        // 그 이름의 상자가 없다: 지금 상자의 폴더가 디스크에서 사라졌으면 상자 폴더 이름을 바꾼 것 → 상자 이름을 바꾼다
+        if (curBox != null && !diskFolders.contains(String.valueOf(boxFolder.get(curBox)).toLowerCase(Locale.ROOT))) {
+            db.updateBox(curBox, new JSONObject().put("name", folder));
+            return true;
+        }
+        db.putInBoxByName(id, folder); // 새 폴더 → 새 상자
+        return true;
+    }
+
     static synchronized void sync(App app) throws Exception {
         String dir = app.db.get(K_DIR, "");
         if (dir.isEmpty() || !app.library.isScanned()) return;
+        try { if (pull(app)) app.emit("{\"type\":\"library\"}"); } catch (Exception e) { Log.w(TAG, "pull", e); } // 밖에서 고친 것을 먼저 받아 덮어쓰지 않게
         ContentResolver cr = app.getContentResolver();
         Uri tree = Uri.parse(dir);
         String rootDoc = DocumentsContract.getTreeDocumentId(tree);
 
-        // 상자에 든 테이프 → 그 상자의 폴더 이름 (상자 이름이 겹치면 뒤에 번호)
+        // 상자에 든 테이프 → 그 상자의 폴더 이름
         Map<String, String> folderOf = new HashMap<>();
         Set<String> usedFolders = new HashSet<>();
         JSONArray boxes = app.db.boxes();
+        Map<String, String> bf = boxFolders(boxes);
         for (int i = 0; i < boxes.length(); i++) {
             JSONObject bx = boxes.getJSONObject(i);
-            String f = safe(bx.optString("name")), base = f;
-            for (int n = 2; usedFolders.contains(f.toLowerCase(Locale.ROOT)); n++) f = base + " (" + n + ")";
+            String f = bf.get(bx.getString("id"));
             usedFolders.add(f.toLowerCase(Locale.ROOT));
             JSONArray its = bx.optJSONArray("items");
             if (its != null) for (int k = 0; k < its.length(); k++) folderOf.putIfAbsent(its.optString(k), f);
@@ -132,8 +331,7 @@ final class PlaylistExport {
         }
 
         // 히스토리 상자: 달마다 가장 많이 들은 30곡 (시스템 상자와 달리 파일로도 남긴다)
-        String histFolder = "히스토리 상자", base = histFolder;
-        for (int n = 2; usedFolders.contains(histFolder.toLowerCase(Locale.ROOT)); n++) histFolder = base + " (" + n + ")";
+        String histFolder = histFolderName(bf);
         boolean saveHist = hist(app.db);
         JSONArray hist = saveHist ? app.db.monthlyTop(30) : new JSONArray();
         for (int i = 0; i < hist.length(); i++) {
@@ -161,7 +359,7 @@ final class PlaylistExport {
         // 2) 새로 쓰거나, 내용이 바뀐 것만 다시 쓴다
         for (Map.Entry<String, String[]> en : want.entrySet()) {
             String id = en.getKey(), folder = en.getValue()[0], file = en.getValue()[1], text = en.getValue()[2];
-            String path = folder + "/" + file, hash = Integer.toHexString(text.hashCode());
+            String path = folder + "/" + file, hash = hash(text);
             JSONObject e = files.optJSONObject(id);
             String doc = e != null && path.equals(e.optString("path")) && exists(cr, tree, e.optString("doc")) ? e.optString("doc") : null;
             if (doc != null && hash.equals(e.optString("hash"))) { next.put(id, e); continue; }
@@ -175,7 +373,7 @@ final class PlaylistExport {
                 try (OutputStream out = cr.openOutputStream(DocumentsContract.buildDocumentUriUsingTree(tree, doc), "wt")) {
                     if (out != null) out.write(text.getBytes(StandardCharsets.UTF_8));
                 }
-                next.put(id, new JSONObject().put("doc", doc).put("path", path).put("hash", hash));
+                next.put(id, new JSONObject().put("doc", doc).put("path", path).put("hash", hash).put("at", System.currentTimeMillis()));
             } catch (Exception ex) { Log.w(TAG, "write " + path, ex); }
         }
         // 3) 이 앱이 만든 상자 폴더 중 이제 쓰지 않고 비어 있는 것은 지운다

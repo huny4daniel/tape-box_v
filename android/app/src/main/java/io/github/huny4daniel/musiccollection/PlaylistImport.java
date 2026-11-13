@@ -91,6 +91,7 @@ final class PlaylistImport {
                                     Map<String, Integer> fileCount, Map<String, Track> byTag) {
         String dir = db.get(K_DIR, null);
         if (dir == null || dir.isEmpty()) return 0;
+        if (dir.equals(db.get(PlaylistExport.K_DIR, ""))) return 0; // 테이프 저장 폴더와 같으면 그쪽(양방향 동기화)이 맡는다
         int count = 0;
         try {
             Uri tree = Uri.parse(dir);
@@ -209,10 +210,33 @@ final class PlaylistImport {
 
     private static List<String> parseM3u(byte[] raw, String dir, Map<String, Track> byPath, Map<String, Track> byFile,
                                          Map<String, Integer> fileCount, Map<String, Track> byTag) {
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        String extArtist = null, extTitle = null;
         String text = decode(raw);
         if (text.contains(PlaylistExport.MARK)) return new ArrayList<>(); // 이 앱이 테이프를 저장한 파일
+        return parseLines(text, dir, byPath, byFile, fileCount, byTag);
+    }
+
+    /** 테이프 저장 폴더의 파일을 다시 읽을 때 (밖에서 고친 내용을 앱에 반영): 이 앱이 쓴 파일도 읽는다 */
+    static List<String> parseTapeText(String text, List<Track> all) {
+        Map<String, Track> byPath = new HashMap<>(), byFile = new HashMap<>(), byTag = new HashMap<>();
+        Map<String, Integer> fileCount = new HashMap<>();
+        for (Track t : all) {
+            byTag.put(tagKey(t.artist, t.title), t);
+            if (t.path == null || t.path.isEmpty()) continue;
+            String p = normPath(t.path), f = fileName(p);
+            byPath.put(p, t); byFile.put(f, t); fileCount.merge(f, 1, Integer::sum);
+        }
+        return parseLines(text, "", byPath, byFile, fileCount, byTag);
+    }
+
+    static String readText(InputStream in) throws java.io.IOException {
+        byte[] raw = readAll(in);
+        return raw == null ? null : decode(raw);
+    }
+
+    private static List<String> parseLines(String text, String dir, Map<String, Track> byPath, Map<String, Track> byFile,
+                                           Map<String, Integer> fileCount, Map<String, Track> byTag) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        String extArtist = null, extTitle = null;
         for (String line : text.split("\\r?\\n|\\r")) {
             line = line.trim();
             if (line.isEmpty()) continue;

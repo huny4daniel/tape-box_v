@@ -93,7 +93,7 @@ public class Db extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE IF NOT EXISTS lyrics_rejected (key TEXT PRIMARY KEY, at INTEGER)");
     }
 
-    /** 테이프 상자: 재생목록 id를 담아 두는 묶음. 테이프 하나는 상자 하나에만 들어간다 (화면에서 맞춘다) */
+    /** 테이프 상자: 재생목록 id를 담아 두는 묶음. 테이프 하나는 상자 하나에만 들어간다 (createBox·updateBox가 지킨다) */
     private static void createBoxes(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS boxes (id TEXT PRIMARY KEY, name TEXT, created INTEGER, updated INTEGER, items TEXT)");
     }
@@ -137,9 +137,12 @@ public class Db extends SQLiteOpenHelper {
                         " last_played = CASE WHEN ? = 1 THEN ? ELSE last_played END," +
                         " first_played = CASE WHEN ? = 1 AND IFNULL(first_played,0) = 0 THEN ? ELSE first_played END WHERE key = ?",
                 new Object[]{Math.max(0, listenedMs), counted ? 1 : 0, counted ? 1 : 0, now, counted ? 1 : 0, now, key});
-        if (counted) getWritableDatabase().execSQL(
-                "INSERT INTO month_plays (month, key, plays, last) VALUES (?, ?, 1, ?) ON CONFLICT(month, key) DO UPDATE SET plays = plays + 1, last = excluded.last",
-                new Object[]{monthOf(now), key, now});
+        if (counted) { // ON CONFLICT … DO UPDATE(UPSERT)는 SQLite 3.24부터라 Android 10(3.22)에서는 안 된다 → 두 번에 나눠
+            SQLiteDatabase db = getWritableDatabase();
+            String month = monthOf(now);
+            db.execSQL("INSERT OR IGNORE INTO month_plays (month, key, plays, last) VALUES (?, ?, 0, ?)", new Object[]{month, key, now});
+            db.execSQL("UPDATE month_plays SET plays = plays + 1, last = ? WHERE month = ? AND key = ?", new Object[]{now, month, key});
+        }
     }
 
     /** 설정 → 기록 초기화: 고른 것만 지운다 (수집 번호·메모·테이프·상자는 그대로) */
@@ -150,6 +153,7 @@ public class Db extends SQLiteOpenHelper {
         if (history) { v.put("first_played", 0); v.put("last_played", 0); }
         if (v.size() > 0) getWritableDatabase().update("meta", v, null, null);
         if (plays) getWritableDatabase().delete("month_plays", null, null); // 히스토리 상자도 들은 횟수에서 나온다
+        if (history) { try { mergePrefs(new JSONObject().put("tapePlayed", JSONObject.NULL)); } catch (JSONException ignored) {} } // 최근 들은 테이프
     }
 
     public synchronized void setFav(String key, boolean fav) {
@@ -209,6 +213,7 @@ public class Db extends SQLiteOpenHelper {
 
     public synchronized void deletePlaylist(String id) {
         getWritableDatabase().delete("playlists", "id = ?", new String[]{id});
+        try { takeOutOfBoxes(java.util.Collections.singleton(id), null); } catch (JSONException ignored) {} // 지운 테이프는 상자에서도 뺀다
     }
 
     /**
@@ -279,22 +284,70 @@ public class Db extends SQLiteOpenHelper {
         }
     }
 
+    /*
+     * 상자 규칙 (화면이 어떻게 보내든 여기서 지킨다)
+     *  - 상자에는 내가 만든 테이프(playlists 표에 있는 것)만 들어간다. 시스템·히스토리·임의 테이프, 지운 테이프 id는 버린다
+     *  - 한 테이프는 한 상자에만 들어간다. 어떤 상자에 넣으면 다른 상자에서는 빠진다
+     */
+    private java.util.LinkedHashSet<String> boxableIds(JSONArray items) {
+        java.util.LinkedHashSet<String> want = new java.util.LinkedHashSet<>(), ok = new java.util.LinkedHashSet<>();
+        if (items != null) for (int i = 0; i < items.length(); i++) { String s = items.optString(i, ""); if (!s.isEmpty()) want.add(s); }
+        if (want.isEmpty()) return ok;
+        java.util.HashSet<String> mine = new java.util.HashSet<>();
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT id FROM playlists", null)) { while (c.moveToNext()) mine.add(c.getString(0)); }
+        for (String s : want) if (mine.contains(s)) ok.add(s);
+        return ok;
+    }
+
+    /** ids를 exceptBox가 아닌 모든 상자에서 뺀다 */
+    private void takeOutOfBoxes(java.util.Set<String> ids, String exceptBox) throws JSONException {
+        if (ids.isEmpty()) return;
+        JSONArray all = boxes();
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject b = all.getJSONObject(i);
+            if (b.getString("id").equals(exceptBox)) continue;
+            JSONArray its = b.getJSONArray("items"), keep = new JSONArray();
+            for (int k = 0; k < its.length(); k++) if (!ids.contains(its.optString(k))) keep.put(its.get(k));
+            if (keep.length() == its.length()) continue;
+            ContentValues v = new ContentValues();
+            v.put("items", keep.toString()); v.put("updated", System.currentTimeMillis());
+            getWritableDatabase().update("boxes", v, "id = ?", new String[]{b.getString("id")});
+        }
+    }
+
     public synchronized JSONObject createBox(String name, JSONArray items) throws JSONException {
         String id = "b" + UUID.randomUUID().toString().replace("-", "").substring(0, 11);
         long now = System.currentTimeMillis();
-        ContentValues v = new ContentValues();
-        v.put("id", id); v.put("name", name); v.put("created", now); v.put("updated", now);
-        v.put("items", (items == null ? new JSONArray() : items).toString());
-        getWritableDatabase().insert("boxes", null, v);
+        java.util.LinkedHashSet<String> ids = boxableIds(items);
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            takeOutOfBoxes(ids, id);
+            ContentValues v = new ContentValues();
+            v.put("id", id); v.put("name", name); v.put("created", now); v.put("updated", now);
+            v.put("items", new JSONArray(ids).toString());
+            db.insert("boxes", null, v);
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
         return box(id);
     }
 
     public synchronized JSONObject updateBox(String id, JSONObject patch) throws JSONException {
-        ContentValues v = new ContentValues();
-        if (patch.has("name")) v.put("name", patch.getString("name"));
-        if (patch.has("items")) v.put("items", patch.getJSONArray("items").toString());
-        v.put("updated", System.currentTimeMillis());
-        getWritableDatabase().update("boxes", v, "id = ?", new String[]{id});
+        if (box(id) == null) return null;
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            ContentValues v = new ContentValues();
+            if (patch.has("name")) v.put("name", patch.getString("name"));
+            if (patch.has("items")) {
+                java.util.LinkedHashSet<String> ids = boxableIds(patch.getJSONArray("items"));
+                takeOutOfBoxes(ids, id);
+                v.put("items", new JSONArray(ids).toString());
+            }
+            v.put("updated", System.currentTimeMillis());
+            db.update("boxes", v, "id = ?", new String[]{id});
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
         return box(id);
     }
 
@@ -306,18 +359,11 @@ public class Db extends SQLiteOpenHelper {
      * 다른 플레이어에서 가져온 재생목록을 맞춘다. 처음 보면 만들고, 이후엔 이 앱에서 고치지 않은 동안만 원본을 따라간다.
      * 이 앱에서 지운 재생목록은 다시 만들지 않는다. 바뀐 게 있으면 true.
      */
-    /** 가져온 테이프를 그 이름의 상자에 넣는다 (없으면 만든다). 다른 상자에 있었으면 거기서 뺀다 */
+    /** 가져온 테이프를 그 이름의 상자에 넣는다 (없으면 만든다). 다른 상자에 있었으면 거기서 빠진다 (createBox·updateBox가 지킨다) */
     public synchronized void putInBoxByName(String plId, String boxName) throws JSONException {
         JSONArray all = boxes();
         JSONObject target = null;
-        for (int i = 0; i < all.length(); i++) {
-            JSONObject b = all.getJSONObject(i);
-            if (target == null && b.optString("name").equals(boxName)) { target = b; continue; }
-            JSONArray its = b.getJSONArray("items"), keep = new JSONArray();
-            boolean had = false;
-            for (int k = 0; k < its.length(); k++) { if (plId.equals(its.optString(k))) had = true; else keep.put(its.get(k)); }
-            if (had) updateBox(b.getString("id"), new JSONObject().put("items", keep));
-        }
+        for (int i = 0; i < all.length() && target == null; i++) if (all.getJSONObject(i).optString("name").equals(boxName)) target = all.getJSONObject(i);
         if (target == null) { createBox(boxName, new JSONArray().put(plId)); return; }
         JSONArray its = target.getJSONArray("items");
         for (int k = 0; k < its.length(); k++) if (plId.equals(its.optString(k))) return;
@@ -390,6 +436,30 @@ public class Db extends SQLiteOpenHelper {
 
     public synchronized void deleteLyrics(String key) {
         getWritableDatabase().delete("lyrics", "key = ?", new String[]{key});
+    }
+
+    // ───── 화면 상태 (기기를 가리지 않는 것: js/prefs.js) ─────
+    public synchronized JSONObject prefs() {
+        try { return new JSONObject(get("ui_prefs", "{}")); } catch (JSONException e) { return new JSONObject(); }
+    }
+
+    /** 바뀐 부분만 합친다: null이면 지우고, 객체끼리는 한 단계 아래까지 합친다(그 안의 null도 지움), 나머지는 바꾼다 */
+    public synchronized JSONObject mergePrefs(JSONObject patch) throws JSONException {
+        JSONObject cur = prefs();
+        java.util.Iterator<String> it = patch.keys();
+        while (it.hasNext()) {
+            String k = it.next();
+            Object v = patch.get(k);
+            if (v == JSONObject.NULL) { cur.remove(k); continue; }
+            JSONObject old = cur.optJSONObject(k);
+            if (v instanceof JSONObject && old != null) {
+                JSONObject pv = (JSONObject) v;
+                java.util.Iterator<String> it2 = pv.keys();
+                while (it2.hasNext()) { String kk = it2.next(); Object vv = pv.get(kk); if (vv == JSONObject.NULL) old.remove(kk); else old.put(kk, vv); }
+            } else cur.put(k, v);
+        }
+        put("ui_prefs", cur.toString());
+        return cur;
     }
 
     // ───── 설정 ─────

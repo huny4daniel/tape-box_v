@@ -11,3 +11,4 @@ pc/build/
 pc/dist/
 *.spec
 _pyi/
+.pc_smoke_data/

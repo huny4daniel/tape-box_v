@@ -165,6 +165,7 @@ public class MainActivity extends ComponentActivity {
     @Override protected void onResume() {
         super.onResume();
         if (resumedOnce && loaded) sendToWeb("{\"type\":\"resume\"}");
+        if (resumedOnce) PlaylistExport.pullSoon(app); // 다른 앱에서 테이프 파일을 고치고 돌아왔을 수 있다
         resumedOnce = true;
     }
 

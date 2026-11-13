@@ -43,6 +43,7 @@ public class Library {
     public Library(Context ctx, Db db) { this.ctx = ctx.getApplicationContext(); this.db = db; }
 
     public boolean isScanned() { return scanned; }
+    public List<Track> all() { return tracks; }
     public int size() { return tracks.size(); }
     public Track get(String id) { return id == null ? null : byId.get(id); }
     public Track albumRep(String albumKey) { return albumRep.get(albumKey); }
