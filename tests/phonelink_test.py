@@ -148,6 +148,16 @@ def main():
     assert len(Phone.conns) <= 2, f"폰 연결을 다시 쓰지 않음: {len(Phone.conns)}개"
     print(f"  ok  중계: 요청 10번에 새 폰 연결 {len(Phone.conns)}개 (쉬던 연결 재사용)")
 
+    # 폰(NanoHTTPD)은 쉬는 연결을 몇 초 뒤 닫는다. 그 뒤에 온 요청(예: PIN 입력)도 새 연결로 받아야 한다
+    Phone.timeout = 0.5
+    get(rport, "GET", "/api/status")
+    import time
+    time.sleep(1.5)
+    r, data = get(rport, "POST", "/echo", body=b"pin", headers={"Content-Type": "text/plain"})
+    assert r.status == 200 and json.loads(data)["echo"] == "pin", (r.status, data)
+    Phone.timeout = None
+    print("  ok  중계: 폰이 닫은 쉬던 연결 뒤의 요청도 전달")
+
     # 폰이 연결을 끊어도 다시 붙는다
     phone.shutdown(); phone.server_close()
     phone = serve(key, crt)

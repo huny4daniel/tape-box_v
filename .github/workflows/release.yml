@@ -157,8 +157,8 @@ jobs:
       - name: Build
         run: >
           pyinstaller --noconfirm --onedir --windowed --noupx
-          --name tape-box --version-file version_info.txt
-          --paths pc --add-data "pc/lyricsync_worker.py:." pc/tape_player.py
+          --name tape-box --version-file version_info.txt --icon pc/assets/tape-box.ico
+          --paths pc --add-data "pc/lyricsync_worker.py:." --add-data "pc/assets/tape-box.ico:assets" pc/tape_player.py
       - name: Zip
         working-directory: dist
         run: 7z a -tzip "../tape-box_${TAG}.zip" tape-box

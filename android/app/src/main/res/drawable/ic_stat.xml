@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- tools/icon/make_icons.py 가 만든 파일. 직접 고치지 말고 그 스크립트를 고쳐 다시 만든다 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M12,2a10,10 0 1,0 0.01,0zM12,9a3,3 0 1,1 -0.01,0z" />
+    <group android:translateX="-0.03" android:translateY="-0.03" android:scaleX="0.0235" android:scaleY="0.0235">
+        <group android:rotation="-8" android:pivotX="512" android:pivotY="512">
+            <path android:pathData="M152,232H872A60,60 0 0 1 932,292V732A60,60 0 0 1 872,792H152A60,60 0 0 1 92,732V292A60,60 0 0 1 152,232ZM370,404H654A70,70 0 0 1 724,474V474A70,70 0 0 1 654,544H370A70,70 0 0 1 300,474V474A70,70 0 0 1 370,404ZM346,742A20,20 0 1 0 386,742A20,20 0 1 0 346,742ZM638,742A20,20 0 1 0 678,742A20,20 0 1 0 638,742Z" android:fillColor="#FFFFFFFF" android:fillType="evenOdd" />
+            <path android:pathData="M370,474A34,34 0 1 0 438,474A34,34 0 1 0 370,474ZM392,474A12,12 0 1 0 416,474A12,12 0 1 0 392,474ZM586,474A34,34 0 1 0 654,474A34,34 0 1 0 586,474ZM608,474A12,12 0 1 0 632,474A12,12 0 1 0 608,474Z" android:fillColor="#FFFFFFFF" android:fillType="evenOdd" />
+        </group>
+    </group>
 </vector>

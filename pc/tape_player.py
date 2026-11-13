@@ -345,8 +345,22 @@ class Api:
         return self._ls.stop()
 
 
+def icon_path():
+    """창·작업 표시줄 아이콘 (exe로 묶으면 _MEIPASS/assets, 소스로 돌리면 pc/assets)"""
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+    p = os.path.join(base, "assets", "tape-box.ico")
+    return p if os.path.isfile(p) else None
+
+
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
+    if os.name == "nt":
+        # 작업 표시줄이 python(w).exe 아이콘으로 묶지 않고 이 프로그램 아이콘을 쓰게 따로 이름을 붙인다
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TapeBox.PC" + (".Debug" if DEBUG else ""))
+        except Exception:
+            pass
     api = Api()
     window = webview.create_window(APP_TITLE, html=STATUS_HTML, width=1280, height=820,
                                    min_size=(720, 520), background_color="#0d0c0b", js_api=api)
@@ -356,7 +370,8 @@ def main():
     api._finder = finder
     # 쿠키(짝 맺은 기록)를 남기려면 private_mode를 꺼야 한다
     webview.start(lambda: threading.Thread(target=finder.run, daemon=True).start(),
-                  private_mode=False, storage_path=os.path.join(DATA_DIR, "webview-debug" if DEBUG else "webview"))
+                  private_mode=False, storage_path=os.path.join(DATA_DIR, "webview-debug" if DEBUG else "webview"),
+                  icon=icon_path())
 
 
 if __name__ == "__main__":
