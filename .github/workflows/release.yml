@@ -154,6 +154,8 @@ jobs:
             ]
           )
           EOF
+      - name: Write app version (설정 화면에 보이는 PC 프로그램 버전)
+        run: echo "VERSION = \"${TAG#v}\"" > pc/app_version.py
       - name: Build
         run: >
           pyinstaller --noconfirm --onedir --windowed --noupx

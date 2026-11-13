@@ -376,7 +376,10 @@ function sortedAlbums() {
 function sortedArtists() {
   const R = Array.from(L.artists.values());
   const s = libSort.artists;
-  return R.sort(s === "name" ? (a, b) => ko.compare(a.name, b.name) : s === "plays" ? (a, b) => b.plays - a.plays : s === "first" ? (a, b) => a.first - b.first : (a, b) => b.tracks.length - a.tracks.length);
+  const byName = (a, b) => ko.compare(a.name, b.name);
+  return R.sort(s === "name" ? byName : s === "plays" ? (a, b) => b.plays - a.plays : s === "first" ? (a, b) => a.first - b.first
+    : s === "countAsc" ? (a, b) => a.tracks.length - b.tracks.length || byName(a, b) // 소장 곡 적은 순
+    : (a, b) => b.tracks.length - a.tracks.length || byName(a, b)); // 소장 곡 많은 순 (기본)
 }
 // 나의 테이프 순서: 최근에 틀어 본 테이프부터, 안 틀어 본 건 그 뒤에 (아끼는 곡 먼저) 최근에 고친 순
 // 나의 테이프 정렬: 최근 들은 순(기본) · 최근 만든 순 · 이름순. 상자도 같은 기준
@@ -417,7 +420,7 @@ pages.artists = (arg) => {
   $("#topbar-title").textContent = "아티스트";
   return `<div class="page">
     <div class="section-head with-tool" style="margin-top:8px"><div><h2 style="font-size:30px">아티스트</h2><p>${U.num(R.length)}명</p></div>
-    <div class="head-tools">${headSearch("artists")}<label class="select"><select data-act="lib-sort" data-k="artists">${[["count", "테이프 박스 속 곡 많은 순"], ["name", "이름순"], ["plays", "많이 들은 순"], ["first", "처음 만난 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div></div>
+    <div class="head-tools">${headSearch("artists")}<label class="select"><select data-act="lib-sort" data-k="artists">${[["count", "소장 곡 많은 순"], ["countAsc", "소장 곡 적은 순"], ["name", "이름순"], ["plays", "많이 들은 순"], ["first", "처음 만난 순"]].map(([k, n]) => `<option value="${k}"${k === s ? " selected" : ""}>${n}</option>`).join("")}</select></label></div></div>
           <div id="lib-grid"></div></div>`;
 };
 pages.artists.after = () => LIST_FILL.artists();
@@ -658,12 +661,23 @@ function savePlaylist(p, patch, quiet) {
 
 // ───────── 페이지: 검색 ─────────
 let lastQuery = "";
-function search(q) {
+// opts.artistFirst: 곡 순서를 「제목이 똑같은 곡 → 그 가수의 곡 → 나머지」로 (테이프에 곡 추가하기)
+// opts.limit: 곡을 몇 개까지 (기본 50)
+function search(q, opts) {
   q = U.norm(q); if (!q) return null;
+  const o = opts || {};
   const cho = U.isChoQuery(q);
   const hit = (o) => cho ? o._cho.includes(q) : o._q.includes(q);
   const score = (s, name) => { const n = U.norm(name); return n === q ? 0 : n.startsWith(q) ? 1 : 2; };
-  const tracks = L.tracks.filter(hit).sort((a, b) => score(0, a.title) - score(0, b.title) || b.plays - a.plays).slice(0, 50);
+  // 가수 이름을 그대로 적었는지 (여러 가수가 부른 곡은 그중 한 명만 같아도). 초성으로 적었으면 초성으로 비교
+  // 2: 똑같음 / 1: 가수 이름이 검색어로 시작함 ("볼빨간사춘기 (BOL4)"처럼 뒤에 붙은 태그) / 0: 아님
+  const nameMatch = (name) => { let n = U.norm(name); if (cho) n = U.chosung(n); return n === q ? 2 : n.startsWith(q) ? 1 : 0; };
+  const byArtist = (t) => Math.max(nameMatch(t.artist), ...t._artists.map(nameMatch));
+  // 순서: 제목이 똑같은 곡 → 가수 이름이 똑같은 곡 → 가수 이름이 검색어로 시작하는 곡 → 제목이 검색어로 시작하는 곡 → 나머지
+  const tScore = o.artistFirst
+    ? (t) => { const s = score(0, t.title); if (s === 0) return 0; const a = byArtist(t); return a === 2 ? 1 : a === 1 ? 2 : s + 2; }
+    : (t) => score(0, t.title);
+  const tracks = L.tracks.filter(hit).sort((a, b) => tScore(a) - tScore(b) || b.plays - a.plays).slice(0, o.limit || 50);
   const artists = Array.from(L.artists.values()).filter(hit).sort((a, b) => score(0, a.name) - score(0, b.name) || b.tracks.length - a.tracks.length).slice(0, 50);
   const albums = Array.from(L.albums.values()).filter(hit).sort((a, b) => score(0, a.title) - score(0, b.title) || b.plays - a.plays).slice(0, 50);
   // 테이프(재생목록)는 이름과 설명으로 찾는다. 목록이 자주 바뀌어 미리 만들어 둔 색인 없이 그때그때 본다
@@ -783,14 +797,18 @@ pages.box = (id) => {
       <button class="play-fab" data-act="list-play" data-list="box" title="상자 통째로 재생"><i class="ic ic-play"></i></button>
       <button class="icon-btn" data-act="list-shuffle" data-list="box" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
     </div>
-    ${T.length && !b.system ? editBar("box-edit", boxEdit) : ""}
-    ${b.system ? (T.length ? `<div class="tape-grid">${T.map(tapeItem).join("")}</div>` : `<div class="empty" style="padding:24px"><b>아직 기록이 없어요</b>${b.history ? "이번 달부터 곡을 들을 때마다 기록해서, 그 달에 가장 많이 들은 30곡을 테이프로 남겨요." : ""}</div>`)
+    ${T.length && (!b.system || b.id === SYS_BOX) ? editBar("box-edit", boxEdit) : ""}
+    ${b.system ? (T.length ? (boxEdit && b.id === SYS_BOX ? editGrid(b, T, false) : `<div class="tape-grid">${T.map(tapeItem).join("")}</div>`) : `<div class="empty" style="padding:24px"><b>아직 기록이 없어요</b>${b.history ? "이번 달부터 곡을 들을 때마다 기록해서, 그 달에 가장 많이 들은 30곡을 테이프로 남겨요." : ""}</div>`)
       : !T.length ? `<div class="empty" style="padding:24px"><b>아직 빈 상자예요</b>아래 「테이프 추가하기」로 골라 넣거나, 테이프를 꾹 눌러(오른쪽 클릭) 「상자에 넣기」를 써 보세요.</div>
       <div class="tape-grid"><button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`
-      : boxEdit ? `<div class="tape-grid editing" data-box-edit="${esc(b.id)}">${T.map((pl, i) => `<div class="tape-edit" data-i="${i}" data-pl-edit="${esc(pl.id)}">${tapeItem(pl)}<span class="tape-grip" data-handle title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span><button class="tape-x" data-act="box-remove" data-pl="${esc(pl.id)}" title="상자에서 빼기"><i class="ic ic-x"></i></button></div>`).join("")}<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`
+      : boxEdit ? editGrid(b, T, true)
       : `<div class="tape-grid">${T.map(tapeItem).join("")}<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`}
   </div>`;
 };
+// 상자 편집 화면: 손잡이로 끌어 순서 바꾸기. 내 상자는 빼기·추가하기도 (시스템 상자는 순서만)
+function editGrid(b, T, full) {
+  return `<div class="tape-grid editing" data-box-edit="${esc(b.id)}">${T.map((pl, i) => `<div class="tape-edit" data-i="${i}" data-pl-edit="${esc(pl.id)}">${tapeItem(pl)}<span class="tape-grip" data-handle title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span>${full ? `<button class="tape-x" data-act="box-remove" data-pl="${esc(pl.id)}" title="상자에서 빼기"><i class="ic ic-x"></i></button>` : ""}</div>`).join("")}${full ? `<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button>` : ""}</div>`;
+}
 pages.box.after = (id) => { if (boxEdit) enableBoxDrag(id); };
 // 상자 편집: 오른쪽 위 손잡이를 잡고 끌어 테이프 순서를 바꾼다 (상자 재생 순서)
 function enableBoxDrag(bid) {
@@ -821,6 +839,10 @@ function enableBoxDrag(bid) {
     clear(); el.classList.remove("dragging");
     U._suppressClick = Date.now();
     if (from !== to) {
+      if (bid === SYS_BOX) { // 시스템 상자: 순서만 화면 상태(폰 DB)에 저장
+        const order = sysBox().items; const [x] = order.splice(from, 1); order.splice(to, 0, x);
+        setSysOrder(order); rerender(); renderSidebar(); return;
+      }
       const b = L.boxes.find((x) => x.id === bid); if (!b) return;
       // 화면에 보이는 테이프(지워진 재생목록 제외) 기준으로 옮긴다
       const shown = boxTapes(b).map((pl) => pl.id); const [x] = shown.splice(from, 1); shown.splice(to, 0, x);

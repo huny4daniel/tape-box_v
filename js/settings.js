@@ -30,8 +30,27 @@ pages.settings = () => {
     ${N ? "" : plFileSlot()}
     ${N ? "" : lsSlot()}
     <div class="set-card"><h3>컬렉션</h3><p>${U.num(L.tracks.length)}곡 · ${U.num(L.albums.size)}장의 앨범 · ${U.num(L.artists.size)}명의 아티스트 · 테이프 ${L.playlists.length}개</p></div>
+    <div class="set-card" id="ver-card"><h3>버전</h3><div class="addr"></div></div>${(setTimeout(renderVersionCard), "")}
   </div>`;
 };
+
+// ───── 버전: 폰 앱(폰 서버가 알려 준다)과, PC 프로그램 창이면 PC 프로그램 ─────
+const PVA = () => (window.pywebview && window.pywebview.api && window.pywebview.api.app_version ? window.pywebview.api : null);
+async function renderVersionCard() {
+  const box = $("#ver-card .addr"); if (!box) return;
+  const vText = (v, debug) => (v ? "v" + v : "알 수 없음") + (debug ? " (디버그)" : "");
+  let phone = null, debug = false;
+  try { const s = await API.status(); phone = s.version || null; debug = !!s.debug; } catch (e) {}
+  const pw = PVA();
+  let pc;
+  if (pw) { try { pc = await pw.app_version(); } catch (e) { pc = undefined; } }
+  if (!document.body.contains(box)) return; // 그새 다른 화면으로 갔다
+  const rows = [`<div><span>폰 앱</span><b>${esc(vText(phone, debug))}</b></div>`];
+  if (pw) rows.push(`<div><span>PC 프로그램</span><b>${esc(pc ? "v" + pc : "개발 중 (소스로 실행)")}</b></div>`);
+  box.innerHTML = rows.join("")
+    + (pw && pc && phone && pc !== phone ? `<p style="margin-top:10px">폰 앱과 PC 프로그램 버전이 달라요. 둘 다 같은 버전으로 업데이트해 주세요.</p>` : "");
+}
+window.addEventListener("pywebviewready", () => renderVersionCard());
 
 // 다른 앱(삼성뮤직 등)이 내보낸 재생목록 파일 폴더 (폰에서만 고를 수 있다)
 // 내가 만든 테이프를 고른 폴더에 .m3u8로 저장해 두고, 테이프를 고칠 때마다 따라 고친다 (상자는 하위 폴더)

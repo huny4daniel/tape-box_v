@@ -83,6 +83,7 @@ def serve(key, crt):
     ctx.load_cert_chain(crt, key)
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     srv.daemon_threads = True
+    srv.handle_error = lambda *a: None  # 중계가 쉬던 연결을 닫을 때 나는 끊김 로그는 시험과 상관없다
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 

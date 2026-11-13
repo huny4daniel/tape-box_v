@@ -291,4 +291,4 @@ function hScroll(row, dx) {
 }
 
 // 테이프·상자 규칙은 js/tapes.js 한곳에 있다
-const { reshuffleTape, isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes } = TapeModel(L, U);
+const { setSysOrder, reshuffleTape, isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes } = TapeModel(L, U);

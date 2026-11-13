@@ -37,6 +37,7 @@ import psutil  # noqa: E402
 import webview  # noqa: E402
 
 import phonelink  # noqa: E402
+from app_version import VERSION  # noqa: E402
 
 from lyricsync import LyricSync
 
@@ -237,6 +238,10 @@ class Api:
         self._window = None
         self._finder = None
         self._ls = LyricSync(load_config, save_config)
+
+    def app_version(self):
+        """PC 프로그램 버전 (설정 화면). 소스로 돌리면 None"""
+        return VERSION
 
     def trust_phone(self):
         """인증서가 바뀐 폰을 믿는다 (연결 화면의 버튼)"""

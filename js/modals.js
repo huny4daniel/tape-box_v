@@ -186,10 +186,11 @@ function pickHtml(items, cell, group, groupLabel) {
   for (const pl of items) (G[group(pl)] = G[group(pl)] || []).push(pl);
   return G.map((arr, n) => arr && arr.length ? (n && G.slice(0, n).some((x) => x && x.length) ? `<div class="pick-divider"><span>${esc(groupLabel[n] || "")}</span></div>` : "") + arr.map(cell).join("") : "").join("");
 }
-function bindPickSearch(input, grid, list, cell, tail, group, groupLabel) {
+// head·tail: 찾는 중이 아닐 때 목록 앞·뒤에 붙는 칸 (「새 테이프 만들기」 등)
+function bindPickSearch(input, grid, list, cell, tail, group, groupLabel, head) {
   const draw = () => {
     const raw = input.value.trim(), q = U.norm(raw), cho = U.isChoQuery(raw);
-    if (!q) { grid.innerHTML = pickHtml(list, cell, group, groupLabel) + (tail || ""); return; }
+    if (!q) { grid.innerHTML = (head || "") + pickHtml(list, cell, group, groupLabel) + (tail || ""); return; }
     const byName = [], bySong = [];
     list.forEach((pl) => {
       const n = U.norm(pl.name);
@@ -327,9 +328,10 @@ function addTracksModal(p) {
     <div class="row-btns"><button class="btn primary" data-close>완료</button></div>`, "wide add-modal");
   const inp = $("#add-q", modal), res = $("#add-res", modal);
   const draw = () => {
-    const r = search(inp.value);
+    // 제목이 똑같은 곡 다음에 그 가수의 곡을 먼저 (가수 이름을 그대로 적었을 때). 가수의 곡이 많아도 다 보이게 넉넉히
+    const r = search(inp.value, { artistFirst: true, limit: 150 });
     if (!r) { res.innerHTML = '<p class="dimmer">찾을 곡을 입력해 주세요</p>'; return; }
-    res.innerHTML = r.tracks.length ? `<div class="tracklist">${r.tracks.slice(0, 40).map((t) => `<div class="row" data-id="${esc(t.id)}"><div class="t">${art(t, 120)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div></div><span class="alb">${esc(t.album)}</span>${p.items.includes(t.id) ? '<span class="added"><i class="ic ic-check"></i>담음</span>' : `<button class="btn" data-act="pl-add" data-id="${esc(t.id)}">담기</button>`}</div>`).join("")}</div>` : '<p class="dimmer">찾는 곡이 없어요</p>';
+    res.innerHTML = r.tracks.length ? `<div class="tracklist">${r.tracks.map((t) => `<div class="row" data-id="${esc(t.id)}"><div class="t">${art(t, 120)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div></div><span class="alb">${esc(t.album)}</span>${p.items.includes(t.id) ? '<span class="added"><i class="ic ic-check"></i>담음</span>' : `<button class="btn" data-act="pl-add" data-id="${esc(t.id)}">담기</button>`}</div>`).join("")}</div>` : '<p class="dimmer">찾는 곡이 없어요</p>';
   };
   inp.addEventListener("input", U.debounce(draw, 150));
 }
@@ -338,17 +340,19 @@ function addTapesModal(b) {
   const pick = new Set();
   const T = sortedTapes().filter((pl) => !b.items.includes(pl.id) && !isSysTape(pl.id)); // 이 상자에 이미 든 테이프·시스템 테이프는 보이지 않는다
   const inOther = (pl) => (boxOf(pl.id) ? 1 : 0), LABEL = ["", "다른 상자에 든 테이프"]; // 상자 밖 먼저, 다른 상자에 든 건 구분선 뒤에
-  if (!T.length) { toast("더 넣을 테이프가 없어요"); return; }
+  // 맨 앞 칸: 새 테이프를 만들어 바로 이 상자에 넣는다 (만들면 그 테이프 화면으로 가서 곡을 담는다)
+  const head = `<button class="tape-new" data-pl="__new"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>`;
   const badge = (pl) => { if (pick.has(pl.id)) return '<span class="already">고름</span>'; const o = boxOf(pl.id); return o ? `<span class="already other">${esc(o.name)}</span>` : ""; };
   const cell = (pl) => `<div class="pick-tape${pick.has(pl.id) ? " on" : ""}" role="button" tabindex="0" data-pl="${esc(pl.id)}">${cassette(pl, bandTrack(pl), { noHeart: true })}${badge(pl)}</div>`;
   openModal(`<h3>「${esc(b.name)}」에 넣을 테이프</h3><p class="dimmer" style="margin:-8px 0 12px;font-size:13px">눌러서 고르고 「넣기」. 다른 상자의 테이프를 고르면 이 상자로 옮겨 와요</p>
     <label class="search-box pick-search"><i class="ic ic-search"></i><input type="search" placeholder="테이프 이름이나 곡으로 찾기" autocomplete="off" spellcheck="false"></label>
-    <div class="pick-tapes">${pickHtml(T, cell, inOther, LABEL)}</div>
+    <div class="pick-tapes">${head}${pickHtml(T, cell, inOther, LABEL)}</div>
     <div class="row-btns"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="box-add-ok">넣기</button></div>`, "wide");
   const grid = $(".pick-tapes", modal);
-  bindPickSearch($(".pick-search input", modal), grid, T, cell, "", inOther, LABEL); // 찾는 동안에도 고른 것은 그대로 남는다
+  bindPickSearch($(".pick-search input", modal), grid, T, cell, "", inOther, LABEL, head); // 찾는 동안에도 고른 것은 그대로 남는다
   grid.addEventListener("keydown", (e) => { const t = e.target.closest(".pick-tape"); if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); t.click(); } });
   grid.addEventListener("click", (e) => {
+    if (e.target.closest('[data-pl="__new"]')) { playlistModal(null, [], b.id); return; }
     const t = e.target.closest(".pick-tape[data-pl]"); if (!t) return;
     const id = t.dataset.pl; pick.has(id) ? pick.delete(id) : pick.add(id);
     t.outerHTML = cell(tapeById(id));

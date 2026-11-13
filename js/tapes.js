@@ -71,7 +71,10 @@
       }
       return { id, name: def[1], desc: def[2], items: sysCache.map.get(id), system: true };
     }
-    const sysBox = () => ({ id: SYS_BOX, name: "시스템 상자", items: SYS_IDS.slice(), system: true, created: 0, updated: 0 });
+    // 시스템 상자 속 테이프 순서: 사용자가 상자 편집에서 끌어 바꾼 순서(폰 DB). 저장된 순서에 없는 테이프(새로 생긴 것)는 뒤에
+    const sysOrder = () => { const saved = Prefs.get("sysOrder", []); const s = Array.isArray(saved) ? saved.filter((id) => SYS_IDS.includes(id)) : []; return s.concat(SYS_IDS.filter((id) => !s.includes(id))); };
+    const setSysOrder = (ids) => Prefs.set({ sysOrder: ids.filter((id) => SYS_IDS.includes(id)) });
+    const sysBox = () => ({ id: SYS_BOX, name: "시스템 상자", items: sysOrder(), system: true, created: 0, updated: 0 });
     // 화면에 보이는 상자들: 시스템 상자(숨기지 않았으면) + 내가 만든 상자
     const allBoxes = () => (sysHidden() ? [] : [sysBox()]).concat(histHidden() ? [] : [histBox()], L.boxes);
     const tapeById = (id) => isHistTape(id) ? histTape(id) : isSysTape(id) ? systemTape(id) : L.playlists.find((p) => p.id === id);
@@ -89,6 +92,6 @@
     const canEditTape = (id) => canBox(id); // 곡을 넣고 빼고 이름을 고칠 수 있는 테이프인가
     const tapeHref = (pl) => (pl.id === "liked" ? "#/liked" : "#/playlist/" + encodeURIComponent(pl.id));
 
-    return { reshuffleTape, isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes };
+    return { setSysOrder, reshuffleTape, isTempTape, isSystemBox, canBox, canBoxInto, canEditTape, tapeHref, likedPl, SYS_BOX, SYS_TAPES, SYS_IDS, isHistTape, isSysTape, boxHidden, setBoxHidden, sysHidden, histHidden, thisMonth, histTape, histBox, systemTape, sysBox, allBoxes, tapeById, boxOf, boxTapes, pinSystemBoxes };
   };
 })();

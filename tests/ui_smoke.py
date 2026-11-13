@@ -108,6 +108,16 @@ def main():
             pg.evaluate("location.hash = '#/search'"); pg.wait_for_timeout(200)
             pg.fill("#q", "비"); pg.wait_for_timeout(400)
             check("검색 결과", pg.locator("#search-res .section").count() > 0, "검색 결과가 없음")
+            # 곡 추가 검색: 가수 이름을 그대로 적으면 「제목이 똑같은 곡 → 그 가수의 곡 → 나머지」
+            order = pg.evaluate("""() => {
+              const name = L.tracks[0]._artists[0], q = U.norm(name);
+              const r = search(name, { artistFirst: true, limit: 1000 }).tracks;
+              const rank = (t) => U.norm(t.title) === q ? 0 : (U.norm(t.artist) === q || t._artists.some((a) => U.norm(a) === q)) ? 1 : 2;
+              const ranks = r.map(rank);
+              return { ok: ranks.every((v, i) => i === 0 || ranks[i - 1] <= v), artist: ranks.filter((v) => v === 1).length,
+                       all: L.tracks.filter((t) => t._artists.some((a) => U.norm(a) === q)).length };
+            }""")
+            check("곡 추가 검색: 가수 곡이 앞에", order["ok"] and order["artist"] == order["all"] > 0, str(order))
             pg.evaluate("location.hash = '#/playlist/p1'"); pg.wait_for_timeout(300)
             pg.click('.actions [data-act="list-play"]'); pg.wait_for_timeout(800)
             check("재생 → 재생 화면", pg.evaluate("!document.querySelector('#fullplayer').hidden && !!document.querySelector('#fullplayer .np-tape-wrap .tape')"), "재생 화면이 안 열림")
@@ -121,6 +131,19 @@ def main():
             pg.evaluate("location.hash = '#/box/b1'"); pg.wait_for_timeout(300)
             pg.click(".tape-grid .tape-new"); pg.wait_for_timeout(300)
             check("상자에 넣을 테이프 창", pg.locator("#modal .pick-search").count() == 1, "창이 안 열림")
+            first = pg.evaluate("document.querySelector('#modal .pick-tapes > *')?.dataset.pl")
+            check("상자에 넣을 테이프 창: 맨 앞이 새 테이프 만들기", first == "__new", f"맨 앞 칸: {first}")
+            pg.click('#modal .pick-tapes [data-pl="__new"]'); pg.wait_for_timeout(300)
+            check("새 테이프 만들기 → 새 테이프 창", pg.locator("#modal #pl-form").count() == 1, "새 테이프 창이 안 열림")
+            pg.evaluate("document.querySelector('#modal [data-close]')?.click()")
+            # 시스템 상자: 편집하면 순서만 바꿀 수 있고(빼기·추가 없음), 바꾼 순서가 상자에 반영된다
+            pg.evaluate("location.hash = '#/box/sys'"); pg.wait_for_timeout(300)
+            pg.evaluate("document.querySelector('[data-act=box-edit]')?.click()"); pg.wait_for_timeout(300)
+            grid = pg.evaluate("({ grips: document.querySelectorAll('.tape-grid.editing [data-handle]').length, x: document.querySelectorAll('.tape-grid.editing .tape-x, .tape-grid.editing .tape-new').length })")
+            moved = pg.evaluate("() => { const o = sysBox().items; const want = [o[1], o[0], ...o.slice(2)]; setSysOrder(want); return JSON.stringify(sysBox().items) === JSON.stringify(want); }")
+            check("시스템 상자: 순서 바꾸기", grid["grips"] > 0 and grid["x"] == 0 and moved, f"{grid} moved={moved}")
+            pg.evaluate("location.hash = '#/settings'"); pg.wait_for_timeout(400)
+            check("설정: 버전", "v0.0.0" in pg.inner_text("#ver-card"), pg.inner_text("#ver-card"))
             pg.close()
         browser.close()
     srv.shutdown()

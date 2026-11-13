@@ -156,6 +156,7 @@ public class WebServer extends NanoHTTPD {
             o.put("authorized", authorized(s));
             o.put("scanned", app.library.isScanned());
             o.put("count", app.library.size());
+            o.put("version", BuildConfig.VERSION_NAME); // 설정 화면의 「버전」 (깃 태그에서 온다)
             if (BuildConfig.DEBUG) o.put("debug", true);
             return json(Response.Status.OK, o.toString());
         }

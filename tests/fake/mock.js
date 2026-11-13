@@ -60,7 +60,7 @@
     { path: "Download/", count: 8 }, { path: "Download/KakaoTalk/", count: 31 }, { path: "Recordings/", count: 54 },
   ] };
   window.MOCK_API = {
-    status: () => ok({ authorized: true, name: "dev" }),
+    status: () => ok({ authorized: true, name: "dev", version: "0.0.0" }),
     pair: () => ok({ ok: true }),
     library: () => ok({ tracks }),
     lyrics: (id) => {
