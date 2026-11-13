@@ -243,6 +243,13 @@ class Handler(SimpleHTTPRequestHandler):
         if path in ("/", "/index.html"):
             with open(os.path.join(ROOT, "index.html"), "rb") as f:
                 return self._send(f.read(), "text/html; charset=utf-8")
+        # 내장 글꼴은 폰 앱 assets/fonts에 있다 (폰 내장 서버와 같은 경로로 내준다)
+        if path.startswith("/fonts/") and ".." not in path:
+            f = os.path.join(ANDROID, "app", "src", "main", "assets", "fonts", os.path.basename(path))
+            if os.path.isfile(f):
+                with open(f, "rb") as fh:
+                    return self._send(fh.read(), "font/woff2" if f.endswith(".woff2") else "font/ttf")
+            return self.send_error(404)
         # 화면 파일만 내준다 (저장소의 다른 파일은 숨김)
         if not (path.startswith("/css/") or path.startswith("/js/")):
             return self.send_error(404)

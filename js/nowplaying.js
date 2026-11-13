@@ -225,6 +225,7 @@ function renderFull() {
   // 같은 곡이면 버튼 상태만 바꾼다 (카세트 애니메이션이 끊기지 않게)
   if (npId === t.id) { syncFullControls(); return; }
   npId = t.id;
+  const qTop = npQueueTop(); // 곡이 바뀌어 다시 그려도 보던 대기열 위치 그대로
   const bg = t.albumKey ? API.artUrl(t.albumKey, 96) : "";
   fp.innerHTML = `
     <div class="np-bg" style="${U.phStyle(t.albumKey + t.album)}">${bg ? `<img alt="" src="${esc(bg)}" onerror="this.remove()">` : ""}</div>
@@ -265,7 +266,7 @@ function renderFull() {
   const vol = $('[data-range="vol"]', fp);
   if (vol) bindRange(vol, () => P.volume, (f) => (P.volume = f), (f) => (P.volume = f));
   syncFullControls();
-  renderNpSide();
+  renderNpSide(qTop);
   if (npInsert) {
     npInsert = false;
     // 꽂히는 움직임은 한 번만. 클래스가 남아 있으면 가사 메모지를 닫고 테이프가 다시 보일 때 또 재생된다
@@ -305,9 +306,18 @@ function renderEjected() {
       </section>
     </div>`;
   if (!tapes.length) return;
+  // 가로 줄 화살표 감싸기(hsDecorate)는 줄을 DOM에서 옮겨 넣는데, 옮겨진 줄은 스크롤 위치를 잃는다.
+  // 나중(다음 프레임)에 감싸지면 아래에서 맞춘 테이프 위치가 맨 앞으로 돌아가므로, 자리를 맞추기 전에 지금 감싼다
+  hsScan();
   const shelf = $(".np-tape-row", fp), boxRow = $(".np-box-row", fp), hint = $(".np-eject-hint", fp), input = $(".np-shelf-search input", fp);
   const tapeCell = (pl) => `<div class="np-shelf-tape" data-act="insert-tape" data-pl="${esc(pl.id)}">${cassette(pl, bandTrack(pl), { noHeart: true })}</div>`;
-  const center = (row, el) => { if (row) row.scrollLeft = el ? el.offsetLeft - (row.clientWidth - el.offsetWidth) / 2 : 0; };
+  // 고른 칸이 줄 가운데 오게 (offsetLeft는 줄이 아니라 감싼 상자 기준이라 화면 좌표 차이로 맞춘다)
+  const center = (row, el) => {
+    if (!row) return;
+    if (!el) { row.scrollLeft = 0; return; }
+    const r = row.getBoundingClientRect(), e = el.getBoundingClientRect();
+    row.scrollLeft += e.left + e.width / 2 - (r.left + r.width / 2);
+  };
   const boxed = new Set(); boxes.forEach((b) => b.items.forEach((id) => boxed.add(id)));
   // 윗줄: 상자 (고른 상자는 들어 올려 표시) / 아랫줄: 고른 상자의 테이프, 아무 상자도 안 골랐으면 상자 밖 테이프
   const draw = (focusId) => {
@@ -459,7 +469,15 @@ function syncFullControls() {
   const fv = $(".tape.big .tape-heart", fp), t = P.current;
   if (fv && t) fv.classList.toggle("on", !!t.fav);
 }
-function renderNpSide() {
+let npQueueCtx = null; // 마지막으로 그린 대기열의 재생 맥락 (테이프가 바뀌었는지 보려고)
+// 보고 있던 대기열의 스크롤 위치 (대기열이 없으면 null)
+function npQueueTop() {
+  const b = $(".np-side-body", fp);
+  return b && $(".queue", b) ? b.scrollTop : null;
+}
+// keepTop: 이 위치를 그대로 유지 (곡을 누르거나 다음 곡으로 넘어갈 때 자동으로 스크롤하지 않게).
+// 없으면 지금 곡이 보이게 맞춘다 (대기열을 처음 열 때)
+function renderNpSide(keepTop) {
   if (fp.hidden) return;
   const body = $(".np-side-body", fp); if (!body) return;
   const oldBtn = $(".np-side > .lyr-revert", fp); if (oldBtn) oldBtn.remove();
@@ -469,6 +487,9 @@ function renderNpSide() {
   if (npSide === "lyrics") { body.innerHTML = `<div class="np-memo paper panel-memo"><div class="np-memo-page"><div data-lyr></div></div></div>`; mountLyrics($("[data-lyr]", body)); }
   else {
     body.innerHTML = queueHtml();
-    scrollQueueToNow(body);
+    // 다른 테이프를 새로 꽂았으면 보던 위치가 의미 없으니 지금 곡으로
+    const c = P.context, key = c ? JSON.stringify([c.type, c.id || "", c.name || ""]) : ""; // PC·폰 동기화로 객체가 새로 와도 같은 테이프면 같게
+    const same = npQueueCtx === key; npQueueCtx = key;
+    if (keepTop != null && same) body.scrollTop = keepTop; else scrollQueueToNow(body);
   }
 }

@@ -76,7 +76,7 @@ async function boot() {
   P.on("played", markTapePlayed);
   P.on("played", U.debounce(() => loadHistory().then(() => { renderSidebar(); if (["box", "playlist"].includes(route().name) && /^(hist|hist-)/.test(route().arg)) rerender(); }), 1500)); // 이번 달 히스토리 테이프
   P.on("queue", () => {
-    if (panelOpen && panelTab === "queue") renderPanel(); if (npSide === "queue") renderNpSide();
+    if (panelOpen && panelTab === "queue") renderPanel(); if (npSide === "queue") renderNpSide(npQueueTop()); // 순서 바꾸기·빼기·곡 누르기에 스크롤이 튀지 않게
     refreshHomeNow();
     // 폰 홈 화면 위젯의 카세트에도 같은 테이프 이름을 적는다
     syncWidgetName();

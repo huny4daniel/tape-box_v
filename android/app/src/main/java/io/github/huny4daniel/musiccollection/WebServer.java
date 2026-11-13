@@ -375,6 +375,8 @@ public class WebServer extends NanoHTTPD {
         TYPES.put("svg", "image/svg+xml");
         TYPES.put("png", "image/png");
         TYPES.put("json", JSON);
+        TYPES.put("ttf", "font/ttf");
+        TYPES.put("woff2", "font/woff2");
     }
 
     // ───── 개발 (디버그 빌드만) ─────
@@ -421,11 +423,13 @@ public class WebServer extends NanoHTTPD {
         if (uri.equals("/") || uri.isEmpty()) uri = "/index.html";
         if (uri.contains("..")) return text(Response.Status.FORBIDDEN, "no");
         AssetManager am = ctx.getAssets();
-        try (InputStream in = am.open("www" + uri)) {
+        // 글꼴은 www에 따로 복사하지 않고 위젯이 쓰는 assets/fonts를 그대로 내준다 (APK에 한 벌만)
+        boolean font = uri.startsWith("/fonts/");
+        try (InputStream in = am.open(font ? uri.substring(1) : "www" + uri)) {
             byte[] data = readAll(in);
             String ext = uri.substring(uri.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
             Response r = newFixedLengthResponse(Response.Status.OK, TYPES.getOrDefault(ext, "application/octet-stream"), new ByteArrayInputStream(data), data.length);
-            r.addHeader("Cache-Control", "no-cache");
+            r.addHeader("Cache-Control", font ? "max-age=31536000, immutable" : "no-cache");
             return r;
         } catch (Exception e) {
             return text(Response.Status.NOT_FOUND, "없는 파일이에요");
