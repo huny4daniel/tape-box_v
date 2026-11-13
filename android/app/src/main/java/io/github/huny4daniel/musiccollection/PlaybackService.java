@@ -109,6 +109,7 @@ public class PlaybackService extends MediaSessionService {
         if (lisMs >= need) {
             lisCounted = true;
             App.get().db.recordPlay(lisId, lisMs, true);
+            PlaylistExport.schedule(App.get()); // 이번 달 히스토리 테이프가 바뀌었을 수 있다
             App.get().emit("{\"type\":\"played\",\"id\":\"" + lisId + "\"}");
             App.get().emit("{\"type\":\"listened\",\"id\":\"" + lisId + "\",\"ms\":" + lisMs + "}");
             lisMs = 0;

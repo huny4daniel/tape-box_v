@@ -195,9 +195,13 @@ public class WebServer extends NanoHTTPD {
             case "plays": {
                 JSONObject b = body(s);
                 String id = b.getString("id");
-                app.db.recordPlay(id, b.optLong("listenedMs", 0), b.optBoolean("counted", false));
+                boolean counted = b.optBoolean("counted", false);
+                app.db.recordPlay(id, b.optLong("listenedMs", 0), counted);
+                if (counted) PlaylistExport.schedule(app); // 이번 달 히스토리 테이프가 바뀌었을 수 있다
                 return ok();
             }
+            case "history": // 히스토리 상자: 달마다 가장 많이 들은 30곡
+                return json(Response.Status.OK, app.db.monthlyTop(30).toString());
             case "reset-records": { // 설정 → 기록 초기화 (들은 횟수 · 아끼는 곡 · 최근 들은 기록 중 고른 것)
                 if (m != Method.POST) break;
                 JSONObject b = body(s);

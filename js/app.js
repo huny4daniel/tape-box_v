@@ -369,7 +369,7 @@
   const refreshHomeNow = () => { const el = $("#home-now"); if (el) el.outerHTML = homeNowHtml(); };
   function contextTape() {
     const c = nowCtx() || {};
-    if (c.type === "playlist") { if (c.id === "liked") return likedPl(); const p = L.playlists.find((x) => x.id === c.id); if (p) return p; }
+    if (c.type === "playlist") { const p = tapeById(c.id); if (p) return p; }
     return { id: "ctx", name: c.name || "나의 믹스테이프", items: P.queue };
   }
   // 테이프 길이: 1:31:20 / 42:05
@@ -429,7 +429,7 @@
     if (k.startsWith("tmp-")) { const x = tempTape(k); return x && { key: k, pl: x, ctx: x.ctx, temp: true }; }
     if (k.startsWith("album:")) { const a = L.albums.get(k.slice(6)); return a && { key: k, pl: { id: a.key, name: a.title, items: T(a.tracks) }, ctx: { type: "album", id: a.key, name: a.title } }; }
     if (k.startsWith("artist:")) { const r = L.artists.get(k.slice(7)); return r && { key: k, pl: { id: r.name, name: r.name, items: T(r.tracks.slice().sort((a, b) => a.n - b.n)) }, ctx: { type: "artist", id: r.name, name: r.name } }; }
-    if (k.startsWith("box:")) { const b = L.boxes.find((x) => x.id === k.slice(4)); return b && { key: k, box: b, pl: { id: b.id, name: b.name, items: boxTrackIds(b) }, ctx: boxCtx(b) }; }
+    if (k.startsWith("box:")) { const b = allBoxes().find((x) => x.id === k.slice(4)); return b && { key: k, box: b, pl: { id: b.id, name: b.name, items: boxTrackIds(b) }, ctx: boxCtx(b) }; }
     if (k.startsWith("year-")) { const d = parseInt(k.slice(5), 10); const ts = L.tracks.filter((t) => t.year >= d && t.year < d + 10).sort((a, b) => (a.year - b.year) || ko.compare(a.artist, b.artist)); return ts.length && { key: k, pl: { id: k, name: d + "년대", items: T(ts) }, ctx: { type: "collection", id: k, name: d + "년대" } }; }
     if (k.startsWith("genre-")) { const g = k.slice(6); const ts = L.tracks.filter((t) => t.genre === g).sort((a, b) => b.n - a.n); return ts.length && { key: k, pl: { id: k, name: g, items: T(ts) }, ctx: { type: "collection", id: k, name: g } }; }
     if (k === "collection") return { key: k, pl: { id: k, name: "곡 목록", items: T(L.tracks.slice().sort((a, b) => b.n - a.n)) }, ctx: { type: "collection", id: k, name: "곡 목록" } };
@@ -440,7 +440,7 @@
     const m = Object.assign(tapePlayedMap(), tempPlayed), seen = new Set(), out = []; // 왼쪽부터 가장 최근에 들은 순
     for (const k of Object.keys(m).sort((a, b) => m[b] - m[a])) {
       // 상자 기록(예전 방식)은 상자 그림 대신 그 안의 테이프들로
-      const keys = k.startsWith("box:") ? (() => { const b = L.boxes.find((x) => x.id === k.slice(4)); return b ? b.items : []; })() : [k];
+      const keys = k.startsWith("box:") ? (() => { const b = allBoxes().find((x) => x.id === k.slice(4)); return b ? b.items : []; })() : [k];
       for (const kk of keys) {
         if (seen.has(kk)) continue; seen.add(kk);
         const x = sysTape(kk); if (x && x.pl.items.length) out.push(x);
@@ -465,9 +465,69 @@
   const tapeItem = (pl) => cassette(pl, bandTrack(pl), { now: isPlayingPl(pl), attrs: `data-pl="${esc(pl.id)}" data-plid="${esc(pl.id)}"` });
 
   // ── 상자 = 테이프를 담아 두는 종이 상자. 테이프 하나는 상자 하나에만 들어간다 ──
-  const tapeById = (id) => id === "liked" ? likedPl() : L.playlists.find((p) => p.id === id);
-  const boxOf = (plId) => L.boxes.find((b) => b.items.includes(plId));
-  const boxTapes = (b) => b.items.map(tapeById).filter(Boolean);
+  // ── 시스템 상자: 사용자가 만들지 않아도 늘 있는 상자. 기록으로 저절로 채워지는 테이프들이 들어 있다 ──
+  //  - 이름 바꾸기·삭제·테이프 넣고 빼기는 안 되고, 숨기기만 된다 (숨기면 설정에서 다시 켠다. 이 기기에만 저장)
+  //  - 안의 테이프는 곡을 직접 고칠 수 없고 다른 상자로도 못 옮긴다. 파일로 저장하는 대상도 아니다 (폰 DB에 없는 화면 속 테이프)
+  const SYS_BOX = "sys";
+  const SYS_TAPES = [
+    ["liked", "아끼는 곡", "하트를 누른 곡, 최근에 누른 순"],
+    ["top", "단골 곡", "가장 많이 들은 50곡"],
+    ["fresh", "새로 들인 곡", "최근 30일 안에 컬렉션에 들어온 곡"],
+    ["longago", "오랜만이에요", "예전에 자주 들었지만 90일 넘게 못 들은 곡"],
+    ["unheard", "아직 못 들은 곡", "한 번도 듣지 않은 곡"],
+    ["onthisday", "그해 오늘", "몇 년 전 이맘때(앞뒤 2주) 컬렉션에 들인 곡"],
+    ["dailymix", "오늘의 믹스", "아끼는 곡·단골 곡·오랜만인 곡을 섞은 30곡, 날마다 바뀐다"],
+  ];
+  const SYS_IDS = SYS_TAPES.map((x) => x[0]);
+  const isHistTape = (id) => String(id).startsWith("hist-");
+  const isSysTape = (id) => SYS_IDS.includes(id) || isHistTape(id); // 시스템·히스토리 상자의 테이프 (편집·옮기기 안 됨)
+  const boxHidden = (id) => { try { return localStorage.getItem("mc.box.hidden." + id) === "1"; } catch (e) { return false; } };
+  const setBoxHidden = (id, on) => { try { on ? localStorage.setItem("mc.box.hidden." + id, "1") : localStorage.removeItem("mc.box.hidden." + id); } catch (e) {} };
+  const sysHidden = () => boxHidden("sys"), histHidden = () => boxHidden("hist");
+  // 히스토리 상자: 달마다 그 달에 가장 많이 들은 30곡. 이번 달은 듣는 대로 바뀌고, 다음 달 1일이 되면 그대로 굳는다
+  const thisMonth = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); };
+  function histTape(id) {
+    const month = String(id).slice(5), h = (L.history || []).find((x) => x.month === month); if (!h) return null;
+    const [y, m] = month.split("-"), now = month === thisMonth();
+    return { id, name: `${y}. ${+m}.`, desc: `${y}년 ${+m}월에 가장 많이 들은 ${h.items.length}곡${now ? " · 이번 달은 듣는 대로 바뀌어요" : ""}`, items: h.items, system: true, history: true };
+  }
+  const histBox = () => ({ id: "hist", name: "히스토리 상자", items: (L.history || []).filter((h) => h.items.length).map((h) => "hist-" + h.month), system: true, history: true, created: 0, updated: 0 });
+  const DAY_MS = 86400000;
+  let sysCache = { at: 0, map: new Map() }; // 곡 3천 개를 매번 훑지 않게 잠깐(2초) 기억해 둔다
+  function systemTape(id) {
+    if (id === "liked") return Object.assign(likedPl(), { system: true, desc: SYS_TAPES[0][2] });
+    const def = SYS_TAPES.find((x) => x[0] === id); if (!def) return null;
+    const now = Date.now();
+    if (now - sysCache.at > 2000) sysCache = { at: now, map: new Map() };
+    if (!sysCache.map.has(id)) {
+      const T = L.tracks, ids = (arr) => arr.map((t) => t.id);
+      let items = [];
+      if (id === "top") items = ids(T.filter((t) => t.plays).sort((a, b) => b.plays - a.plays || (b.lastPlayed || 0) - (a.lastPlayed || 0)).slice(0, 50));
+      else if (id === "fresh") { const r = T.filter((t) => t.addedAt >= now - 30 * DAY_MS).sort((a, b) => b.n - a.n); items = ids(r.length ? r : T.slice().sort((a, b) => b.n - a.n).slice(0, 30)); }
+      else if (id === "longago") items = ids(T.filter((t) => t.plays >= 3 && t.lastPlayed && now - t.lastPlayed > 90 * DAY_MS).sort((a, b) => b.plays - a.plays).slice(0, 50));
+      else if (id === "unheard") items = ids(T.filter((t) => !t.plays).sort((a, b) => b.n - a.n).slice(0, 200));
+      else if (id === "onthisday") {
+        const d = new Date(now), y = d.getFullYear();
+        const doy = (x) => Math.floor((Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) - Date.UTC(x.getFullYear(), 0, 0)) / DAY_MS);
+        const today = doy(d);
+        items = ids(T.filter((t) => { if (!t.addedAt) return false; const a = new Date(t.addedAt); if (a.getFullYear() >= y) return false; const diff = Math.abs(doy(a) - today); return Math.min(diff, 365 - diff) <= 14; }).sort((a, b) => b.addedAt - a.addedAt));
+      } else if (id === "dailymix") {
+        const rnd = U.seeded(Number(new Date(now).toISOString().slice(0, 10).replace(/-/g, "")));
+        const pool = [...new Set([...likedPl().items, ...systemTape("top").items, ...systemTape("longago").items])];
+        const pick = U.pick(pool, Math.min(30, pool.length), rnd);
+        if (pick.length < 30) pick.push(...U.pick(T.map((t) => t.id).filter((x) => !pick.includes(x)), 30 - pick.length, rnd)); // 기록이 적으면 컬렉션에서 채운다
+        items = pick;
+      }
+      sysCache.map.set(id, items);
+    }
+    return { id, name: def[1], desc: def[2], items: sysCache.map.get(id), system: true };
+  }
+  const sysBox = () => ({ id: SYS_BOX, name: "시스템 상자", items: SYS_IDS.slice(), system: true, created: 0, updated: 0 });
+  // 화면에 보이는 상자들: 시스템 상자(숨기지 않았으면) + 내가 만든 상자
+  const allBoxes = () => (sysHidden() ? [] : [sysBox()]).concat(histHidden() ? [] : [histBox()], L.boxes);
+  const tapeById = (id) => isHistTape(id) ? histTape(id) : isSysTape(id) ? systemTape(id) : L.playlists.find((p) => p.id === id);
+  const boxOf = (plId) => isHistTape(plId) ? (histHidden() ? null : histBox()) : isSysTape(plId) ? (sysHidden() ? null : sysBox()) : L.boxes.find((b) => b.items.includes(plId));
+  const boxTapes = (b) => b.items.filter((id) => b.system || !isSysTape(id)).map(tapeById).filter(Boolean); // 내 상자에 예전에 넣어 둔 아끼는 곡 등은 무시
   const boxHref = (b) => "#/box/" + encodeURIComponent(b.id);
   // 상자 안 테이프를 차례로 이어 붙인 곡 목록
   const boxTrackIds = (b) => { const out = []; for (const pl of boxTapes(b)) for (const id of pl.items) if (L.byId.has(id)) out.push(id); return out; };
@@ -482,7 +542,7 @@
       return `<i class="tbox-tape${isPlayingPl(pl) ? " up" : ""}" style="--h:${h % 360};--lift:${(h >> 3) % 5}"><span>${esc(pl.name)}</span></i>`;
     }).join("");
     const now = T.some(isPlayingPl);
-    return `<div class="tbox${o.big ? " big" : ""}${T.length ? "" : " is-empty"}${now ? " now" : ""}" ${o.attrs || ""} style="--tilt:${tilt}deg;--h:${hsh % 360}">
+    return `<div class="tbox${o.big ? " big" : ""}${b.system ? " is-sysbox" : ""}${T.length ? "" : " is-empty"}${now ? " now" : ""}" ${o.attrs || ""} style="--tilt:${tilt}deg;--h:${hsh % 360}">
       <div class="tbox-back"></div>
       <div class="tbox-tapes">${spines}</div>
       <i class="tbox-flap l"></i><i class="tbox-flap r"></i>
@@ -555,7 +615,7 @@
     playlists() {
       const grid = $("#tape-grid"), sub = $("#tape-sub"); if (!grid) return;
       const hit = tapeTest(listQ.playlists);
-      const boxed = new Set(); L.boxes.forEach((b) => b.items.forEach((id) => boxed.add(id)));
+      const boxed = new Set(); allBoxes().forEach((b) => b.items.forEach((id) => boxed.add(id)));
       const T = tapeSorted(sortedTapes().filter(hit || ((pl) => !boxed.has(pl.id)))); // 찾을 때는 상자 안 테이프까지 (임의 테이프는 넣지 않는다)
       sub.textContent = hit ? `찾은 테이프 ${U.num(T.length)}개 (상자 안 포함)` : boxed.size ? `상자 밖 ${U.num(T.length)}개` : `${U.num(T.length)}개`;
       grid.innerHTML = T.length ? `<div class="tape-grid">${lazyItems(T, tapeItem, 16, 10)}</div>` : hit ? noHit("playlists") : "";
@@ -565,8 +625,9 @@
       const grid = $("#box-grid"), sub = $("#box-sub"); if (!grid) return;
       const raw = listQ.boxes, q = U.norm(raw), cho = U.isChoQuery(raw.trim()), hit = !!q;
       const nameHit = (name) => { const n = U.norm(name); return (cho ? U.chosung(n) : n).includes(q); };
-      const B = tapeSorted(hit ? L.boxes.filter((b) => nameHit(b.name) || boxTapes(b).some((pl) => nameHit(pl.name))) : L.boxes, true);
-      sub.textContent = hit ? `찾은 상자 ${B.length}개` : L.boxes.length ? `${L.boxes.length}개 · 아래 테이프를 끌어다 상자에 넣을 수 있어요` : "「새 상자」로 만들어 테이프를 나눠 담아 두세요";
+      const AB = allBoxes();
+      const B = tapeSorted(hit ? AB.filter((b) => nameHit(b.name) || boxTapes(b).some((pl) => nameHit(pl.name))) : AB, true);
+      sub.textContent = hit ? `찾은 상자 ${B.length}개` : AB.length ? `${AB.length}개 · 아래 테이프를 끌어다 상자에 넣을 수 있어요` : "「새 상자」로 만들어 테이프를 나눠 담아 두세요";
       grid.innerHTML = B.length ? `<div class="tape-grid box-grid">${B.map(boxItem).join("")}</div>` : hit ? `<div class="empty" style="padding:24px"><b>찾는 상자가 없어요</b></div>` : "";
     },
   };
@@ -656,7 +717,13 @@
   // 나의 테이프 순서: 최근에 틀어 본 테이프부터, 안 틀어 본 건 그 뒤에 (아끼는 곡 먼저) 최근에 고친 순
   // 나의 테이프 정렬: 최근 들은 순(기본) · 최근 만든 순 · 이름순. 상자도 같은 기준
   const TAPE_SORTS = [["recent", "최근 들은 순"], ["made", "최근 만든 순"], ["name", "이름순"]];
+  // 상자 목록: 시스템 상자 → 히스토리 상자를 늘 맨 앞에, 나머지는 받은 순서 그대로
+  const pinSystemBoxes = (list) => list.filter((b) => b.id === "sys").concat(list.filter((b) => b.id === "hist"), list.filter((b) => !b.system));
   function tapeSorted(list, isBox) {
+    if (isBox) return pinSystemBoxes(tapeSortedRaw(list, true));
+    return tapeSortedRaw(list, false);
+  }
+  function tapeSortedRaw(list, isBox) {
     const k = isBox ? libSort.boxes : libSort.playlists, played = tapePlayedMap(), key = (x) => (isBox ? "box:" : "") + x.id;
     if (k === "name") return list.slice().sort((a, b) => ko.compare(a.name, b.name));
     if (k === "made") return list.slice().sort((a, b) => (b.created || 0) - (a.created || 0)); // 아끼는 곡(만든 날 없음)은 맨 뒤
@@ -665,11 +732,11 @@
   // 상자를 최근에 들은 순으로 (상자 안 테이프 중 가장 최근에 들은 때, 같으면 원래 순서)
   function boxesByRecent(list) {
     const played = tapePlayedMap(), at = (b) => Math.max(played["box:" + b.id] || 0, ...b.items.map((id) => played[id] || 0));
-    return list.slice().sort((a, b) => at(b) - at(a));
+    return pinSystemBoxes(list.slice().sort((a, b) => at(b) - at(a)));
   }
   function sortedTapes() {
     const played = tapePlayedMap();
-    return [likedPl()].concat(L.playlists).sort((a, b) => (played[b.id] || 0) - (played[a.id] || 0) || (b.id === "liked") - (a.id === "liked") || (b.updated || 0) - (a.updated || 0));
+    return (sysHidden() ? [] : SYS_IDS.map(systemTape)).concat(histHidden() ? [] : histBox().items.map(histTape).filter(Boolean), L.playlists).sort((a, b) => (played[b.id] || 0) - (played[a.id] || 0) || (b.id === "liked") - (a.id === "liked") || (b.updated || 0) - (a.updated || 0));
   }
   pages.albums = () => {
     const A = sortedAlbums();
@@ -799,7 +866,27 @@
 
   // ───────── 페이지: 재생목록 ─────────
   let plEdit = false, boxEdit = false; // 재생목록·상자 편집 중 (다른 화면으로 가면 끝)
+  function sysTapePage(id) {
+    const p = tapeById(id); if (!p) return notFound();
+    const T = p.items.map((i) => L.byId.get(i)).filter(Boolean), bx = boxOf(id);
+    $("#topbar-title").textContent = p.name;
+    if (T[0]) tintFromArt(T[0]); else setTint("30 10% 22%");
+    return `<div class="page">
+      <div class="hero">${heroTape(p, "playlist")}<div class="hero-text">
+        <div class="hero-kicker">${bx ? `<a href="${boxHref(bx)}" class="kicker-box"><i class="ic ic-box"></i>${esc(bx.name)}</a>` : "테이프"}</div><h1 class="${p.name.length > 20 ? "long" : ""}">${esc(p.name)}</h1>
+        <p class="hero-desc">${esc(p.desc || "")}</p>
+        <div class="hero-meta"><b>${T.length}곡</b><span class="sep"></span><span>${U.fmtLong(T.reduce((s, t) => s + t.duration, 0))}</span></div>
+      </div></div>
+      <div class="actions">
+        <button class="play-fab" data-act="list-play" data-list="playlist"><i class="ic ic-play"></i></button>
+        <button class="icon-btn" data-act="list-shuffle" data-list="playlist" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
+        ${T.length ? selBtn("playlist") : ""}
+      </div>
+      ${T.length ? trackList("playlist", T, "index") : `<div class="empty" style="padding:24px"><b>아직 담긴 곡이 없어요</b>기록이 쌓이면 저절로 채워져요.</div>`}
+    </div>`;
+  }
   pages.playlist = (id) => {
+    if (isSysTape(id) && id !== "liked") return sysTapePage(id); // 시스템·히스토리 테이프는 보기만
     const p = L.playlists.find((x) => x.id === id);
     if (!p) return notFound();
     const T = p.items.map((i) => L.byId.get(i)).filter(Boolean);
@@ -921,7 +1008,7 @@
     const tapes = sortedTapes().filter(nameHit) // 임의 테이프는 검색에 넣지 않는다
       .sort((a, b) => score(0, a.name) - score(0, b.name)).slice(0, 50);
     // 테이프 상자는 이름으로 찾는다 (검색 결과의 「테이프」 갈래에 테이프보다 앞에)
-    const boxes = L.boxes.filter((b) => { const n = U.norm(b.name); return cho ? U.chosung(n).includes(q) : n.includes(q); })
+    const boxes = pinSystemBoxes(allBoxes().filter((b) => { const n = U.norm(b.name); return cho ? U.chosung(n).includes(q) : n.includes(q); }))
       .sort((a, b) => score(0, a.name) - score(0, b.name));
     return { tracks, artists, albums, tapes, boxes };
   }
@@ -1005,7 +1092,7 @@
   pages.playlists = () => {
     $("#topbar-title").textContent = "나의 테이프";
     return `<div class="page">
-      <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">나의 테이프</h2><p>테이프 ${L.playlists.length + 1}개${L.boxes.length ? ` · 상자 ${L.boxes.length}개` : ""}</p></div></div>
+      <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">나의 테이프</h2><p>테이프 ${sortedTapes().length}개${L.boxes.length ? ` · 상자 ${L.boxes.length}개` : ""}</p></div></div>
       <div class="section-head grid-head"><div><h2>상자</h2><p id="box-sub"></p></div><div class="head-tools"><button class="btn head-new" data-act="new-box"><i class="ic ic-box"></i>새 상자</button>${headSearch("boxes")}${tapeSortSel("boxes")}</div></div>
       <div id="box-grid"></div>
       <div class="section-head grid-head"><div><h2>테이프</h2><p id="tape-sub"></p></div><div class="head-tools"><button class="btn head-new" data-act="new-playlist"><i class="ic ic-plus"></i>새 테이프</button>${headSearch("playlists")}${tapeSortSel("playlists")}</div></div>
@@ -1016,7 +1103,7 @@
   pages.playlists.after = () => { LIST_FILL.boxes(); LIST_FILL.playlists(); };
   // 상자 하나: 안에 든 테이프들. 상자를 누르면 테이프를 차례로 이어서 재생
   pages.box = (id) => {
-    const b = L.boxes.find((x) => x.id === id);
+    const b = allBoxes().find((x) => x.id === id);
     if (!b) return notFound();
     const T = boxTapes(b), ids = boxTrackIds(b);
     lists.box = ids;
@@ -1025,16 +1112,17 @@
     setTint("32 30% 22%");
     const dur = ids.reduce((s, i) => s + (L.byId.get(i).duration || 0), 0);
     return `<div class="page">
-      <div class="hero"><div class="hero-tape" data-unbox="${esc(b.id)}">${tbox(b, { big: true, attrs: `data-act="list-play" data-list="box" title="상자 통째로 재생"` })}</div><div class="hero-text">
-        <div class="hero-kicker">테이프 상자</div><h1 class="${b.name.length > 20 ? "long" : ""}">${esc(b.name)}</h1>
+      <div class="hero"><div class="hero-tape"${b.system ? "" : ` data-unbox="${esc(b.id)}"`}>${tbox(b, { big: true, attrs: `data-act="list-play" data-list="box" title="상자 통째로 재생"` })}</div><div class="hero-text">
+        <div class="hero-kicker">${b.history ? "히스토리 상자 · 달마다 가장 많이 들은 30곡" : b.system ? "시스템 상자 · 기록으로 저절로 채워져요" : "테이프 상자"}</div><h1 class="${b.name.length > 20 ? "long" : ""}">${esc(b.name)}</h1>
         <div class="hero-meta"><b>테이프 ${T.length}개</b><span class="sep"></span><span>${U.num(ids.length)}곡</span>${dur ? `<span class="sep"></span><span>${U.fmtLong(dur)}</span>` : ""}</div>
       </div></div>
       <div class="actions">
         <button class="play-fab" data-act="list-play" data-list="box" title="상자 통째로 재생"><i class="ic ic-play"></i></button>
         <button class="icon-btn" data-act="list-shuffle" data-list="box" title="셔플 재생"><i class="ic ic-shuffle"></i></button>
       </div>
-      ${T.length ? editBar("box-edit", boxEdit) : ""}
-      ${!T.length ? `<div class="empty" style="padding:24px"><b>아직 빈 상자예요</b>아래 「테이프 추가하기」로 골라 넣거나, 테이프를 꾹 눌러(오른쪽 클릭) 「상자에 넣기」를 써 보세요.</div>
+      ${T.length && !b.system ? editBar("box-edit", boxEdit) : ""}
+      ${b.system ? (T.length ? `<div class="tape-grid">${T.map(tapeItem).join("")}</div>` : `<div class="empty" style="padding:24px"><b>아직 기록이 없어요</b>${b.history ? "이번 달부터 곡을 들을 때마다 기록해서, 그 달에 가장 많이 들은 30곡을 테이프로 남겨요." : ""}</div>`)
+        : !T.length ? `<div class="empty" style="padding:24px"><b>아직 빈 상자예요</b>아래 「테이프 추가하기」로 골라 넣거나, 테이프를 꾹 눌러(오른쪽 클릭) 「상자에 넣기」를 써 보세요.</div>
         <div class="tape-grid"><button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`
         : boxEdit ? `<div class="tape-grid editing" data-box-edit="${esc(b.id)}">${T.map((pl, i) => `<div class="tape-edit" data-i="${i}" data-pl-edit="${esc(pl.id)}">${tapeItem(pl)}<span class="tape-grip" data-handle title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span><button class="tape-x" data-act="box-remove" data-pl="${esc(pl.id)}" title="상자에서 빼기"><i class="ic ic-x"></i></button></div>`).join("")}<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`
         : `<div class="tape-grid">${T.map(tapeItem).join("")}<button class="tape-new" data-act="box-add-open"><i class="ic ic-plus"></i><span>테이프 추가하기</span></button></div>`}
@@ -1098,7 +1186,7 @@
     $$(".side-pl").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + curRoute || (!!a.dataset.bx && "/box/" + encodeURIComponent(a.dataset.bx) === curRoute)));
   }
   function renderSidebar() {
-    const bx = sideBox && L.boxes.find((b) => b.id === sideBox);
+    const bx = sideBox && allBoxes().find((b) => b.id === sideBox);
     if (!bx) sideBox = null;
     const head = $("#side-lib-head"), list = $("#side-playlists");
     if (bx) {
@@ -1107,8 +1195,8 @@
       list.innerHTML = T.length ? T.map(plItem).join("") : `<p class="side-empty">빈 상자예요</p>`;
     } else {
       head.innerHTML = `<span>라이브러리</span>`;
-      const boxed = new Set(); L.boxes.forEach((b) => b.items.forEach((id) => boxed.add(id)));
-      list.innerHTML = boxesByRecent(L.boxes).map(sideBoxItem).join("") + sortedTapes().filter((p) => !boxed.has(p.id)).map(plItem).join(""); // 테이프는 최근에 들은 순
+      const boxed = new Set(); allBoxes().forEach((b) => b.items.forEach((id) => boxed.add(id)));
+      list.innerHTML = boxesByRecent(allBoxes()).map(sideBoxItem).join("") + sortedTapes().filter((p) => !boxed.has(p.id)).map(plItem).join(""); // 테이프는 최근에 들은 순
     }
     markSideOn();
   }
@@ -1129,6 +1217,9 @@
     return `<div class="page"><h2 style="font-size:30px;margin:8px 0 0">설정 · 연결</h2>
       ${conn}
       ${L.debug ? `<div class="set-card"><div class="set-row"><div><h3>개발용 · 원래 앱 데이터 가져오기</h3><p>이 폰에 깔린 원래 테이프 박스 앱의 수집 번호·재생 기록·아끼는 곡·메모·테이프·상자를 이 디버그 앱으로 그대로 복사해요. 디버그 앱의 지금 기록은 덮어써요. 원래 앱은 건드리지 않아요.</p></div><button class="btn" data-act="dev-import">가져오기</button></div></div>` : ""}
+      <div class="set-card"><h3>기본 상자</h3><p>앱이 저절로 만들어 두는 상자예요. 숨겨도 기록은 그대로 쌓여요.</p>
+        <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">시스템 상자</h3><p>아끼는 곡 · 단골 곡 · 새로 들인 곡 · 오랜만이에요 · 아직 못 들은 곡 · 그해 오늘 · 오늘의 믹스</p></div><button class="switch${sysHidden() ? "" : " on"}" data-act="box-show" data-bx="sys" aria-label="시스템 상자 보이기"></button></div>
+        <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">히스토리 상자</h3><p>달마다 그 달에 가장 많이 들은 30곡</p></div><button class="switch${histHidden() ? "" : " on"}" data-act="box-show" data-bx="hist" aria-label="히스토리 상자 보이기"></button></div></div>
       <div class="set-card"><div class="set-row"><div><h3>기록 초기화</h3><p>들은 횟수, 아끼는 곡 표시, 최근 들은 기록 중 고른 것을 지워요. 수집 번호·메모·테이프·상자는 그대로 남아요.</p></div><button class="btn" data-act="reset-records">초기화…</button></div></div>
       <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
       ${N ? exportDirCard(N) : ""}
@@ -1142,11 +1233,12 @@
   // 다른 앱(삼성뮤직 등)이 내보낸 재생목록 파일 폴더 (폰에서만 고를 수 있다)
   // 내가 만든 테이프를 고른 폴더에 .m3u8로 저장해 두고, 테이프를 고칠 때마다 따라 고친다 (상자는 하위 폴더)
   function exportDirCard(N) {
-    let dir = "", auto = true; try { dir = N.getExportDir ? N.getExportDir() : ""; auto = N.getExportAuto ? N.getExportAuto() : true; } catch (e) {}
-    return `<div class="set-card"><div class="set-row"><div><h3>테이프를 파일로 저장</h3><p>폴더를 고르면 내가 만든 테이프를 .m3u8 재생목록 파일로 저장하고, 이름을 바꾸거나 곡을 고치거나 지울 때마다 자동으로 따라 고쳐요. 상자에 든 테이프는 상자 이름의 하위 폴더에 들어가요.</p></div>
+    let dir = "", auto = true, hist = true; try { dir = N.getExportDir ? N.getExportDir() : ""; auto = N.getExportAuto ? N.getExportAuto() : true; hist = N.getExportHist ? N.getExportHist() : true; } catch (e) {}
+    return `<div class="set-card"><div class="set-row"><div><h3>테이프를 파일로 저장</h3><p>폴더를 고르면 내가 만든 테이프를 .m3u8 재생목록 파일로 저장하고, 이름을 바꾸거나 곡을 고치거나 지울 때마다 자동으로 따라 고쳐요. 상자에 든 테이프는 상자 이름의 하위 폴더에 들어가요. 시스템 상자는 저장하지 않아요.</p></div>
       <button class="btn" data-act="export-pick">${dir ? "바꾸기" : "폴더 고르기"}</button></div>
       ${dir ? `<div class="addr"><div><span>폴더</span><b style="font-size:15px">${esc(dir)}</b></div></div>
         <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">자동 저장</h3><p>${auto ? "테이프를 고칠 때마다 파일도 바로 고쳐요" : "꺼져 있어요. 「지금 저장」을 누를 때만 저장해요"}</p></div><button class="switch${auto ? " on" : ""}" data-act="export-auto" aria-label="자동 저장"></button></div>
+        <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">히스토리 상자도 저장</h3><p>${hist ? "「히스토리 상자」 하위 폴더에 달마다 파일로 남겨요 (이번 달은 듣는 대로 고쳐요)" : "꺼져 있어요. 이미 만든 히스토리 파일은 그대로 있어요"}</p></div><button class="switch${hist ? " on" : ""}" data-act="export-hist" aria-label="히스토리 상자도 저장"></button></div>
         <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" data-act="export-now">지금 저장</button><button class="btn ghost" data-act="export-clear">폴더 해제</button></div>` : ""}</div>`;
   }
   function playlistDirCard(N) {
@@ -1653,9 +1745,9 @@
     npId = "__eject";
     const playable = (pl) => pl && pl.items.some((id) => L.byId.has(id));
     const tapes = sortedTapes().filter(playable); // 최근에 들은 순
-    const boxes = boxesByRecent(L.boxes.filter((b) => boxTapes(b).some(playable)));
+    const boxes = boxesByRecent(allBoxes().filter((b) => boxTapes(b).some(playable)));
     // 방금까지 재생하던 테이프가 상자 안에 있으면 그 상자를 고른 채로 시작
-    const lastBox = (lastTapeId && boxOf(lastTapeId)) || (lastBoxId && L.boxes.find((b) => b.id === lastBoxId));
+    const lastBox = (lastTapeId && boxOf(lastTapeId)) || (lastBoxId && allBoxes().find((b) => b.id === lastBoxId));
     shelfBox = lastBox && boxes.includes(lastBox) ? lastBox.id : null;
     fp.innerHTML = `
       <div class="np-bg"></div>
@@ -1679,7 +1771,7 @@
     const boxed = new Set(); boxes.forEach((b) => b.items.forEach((id) => boxed.add(id)));
     // 윗줄: 상자 (고른 상자는 들어 올려 표시) / 아랫줄: 고른 상자의 테이프, 아무 상자도 안 골랐으면 상자 밖 테이프
     const draw = (focusId) => {
-      const bx = shelfBox && L.boxes.find((b) => b.id === shelfBox);
+      const bx = shelfBox && allBoxes().find((b) => b.id === shelfBox);
       if (boxRow) $$(".np-shelf-box", boxRow).forEach((el) => el.classList.toggle("on", !!bx && el.dataset.bx === bx.id));
       const T = bx ? boxTapes(bx).filter(playable) : tapes.filter((pl) => !boxed.has(pl.id));
       if (!bx) for (const x of tempTapes.filter(playable)) T.splice(Math.min(T.length, Math.floor(x.slot * (T.length + 1))), 0, x);
@@ -1736,7 +1828,7 @@
   }
   function insertTape(plId) {
     const tmp = tempTape(plId);
-    const pl = tmp || (plId === "liked" ? likedPl() : L.playlists.find((p) => p.id === plId));
+    const pl = tmp || tapeById(plId);
     if (!pl) return;
     const ids = pl.items.filter((id) => L.byId.has(id)); if (!ids.length) return;
     npEjected = false; npId = null; npInsert = true;
@@ -1853,7 +1945,7 @@
   menu.addEventListener("click", (e) => { if (e.target === menu) closeMenu(); });
   function trackMenu(id, x, y, ctx) {
     const t = L.byId.get(id); if (!t) return;
-    const inPl = ctx && ctx.list === "playlist";
+    const inPl = ctx && ctx.list === "playlist" && !isSysTape(route().arg); // 시스템·히스토리 테이프는 곡을 뺄 수 없다
     openMenu(x, y, `
       <div class="mh">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div></div>
       <button data-m="next" data-id="${esc(id)}"><i class="ic ic-queue"></i>다음에 재생</button>
@@ -1887,16 +1979,23 @@
       case "tape-box": pickBoxModal(b.dataset.pl); break;
       case "tape-unbox": { const pl = tapeById(b.dataset.pl), bx = boxOf(b.dataset.pl); moveTapes([b.dataset.pl], null); if (pl && bx) toast(`「${pl.name}」을(를) 「${bx.name}」 상자에서 꺼냈어요`); break; }
       case "box-rename": boxModal(curBox()); break;
+      case "box-hide": { setBoxHidden(b.dataset.bx, true); renderSidebar(); toast("숨겼어요. 설정 → 「기본 상자」에서 다시 보이게 할 수 있어요"); location.hash = "#/playlists"; break; }
       case "box-delete": deleteBox(curBox()); break;
       case "box-queue": { const bx = curBox(); if (bx) { P.addToQueue(boxTrackIds(bx)); toast("대기열에 추가했어요"); } break; }
     }
   });
   const curPlaylist = () => { const r = route(); return r.name === "playlist" ? L.playlists.find((p) => p.id === r.arg) : null; };
-  const curBox = () => { const r = route(); return r.name === "box" ? L.boxes.find((b) => b.id === r.arg) : null; };
+  const curBox = () => { const r = route(); return r.name === "box" ? allBoxes().find((b) => b.id === r.arg) : null; };
   // 테이프 메뉴 (꾹 누르기·오른쪽 클릭): 열기, 상자에 넣기·옮기기·꺼내기
   function tapeMenu(plId, x, y) {
     const pl = tapeById(plId); if (!pl) return;
     const bx = boxOf(plId);
+    if (isSysTape(plId)) { // 시스템·히스토리 테이프는 상자를 옮길 수 없다
+      openMenu(x, y, `<div class="mh"><div><b>${esc(pl.name)}</b><span>${bx ? `「${esc(bx.name)}」 안` : "숨긴 상자"} · ${pl.items.length}곡</span></div></div>
+        <button data-m="tape-play" data-pl="${esc(plId)}"><i class="ic ic-play"></i>재생하기</button>
+        <button data-m="tape-open" data-pl="${esc(plId)}"><i class="ic ic-tape"></i>테이프 열기</button>`);
+      return;
+    }
     openMenu(x, y, `<div class="mh"><div><b>${esc(pl.name)}</b><span>${bx ? `「${esc(bx.name)}」 상자 안` : "상자 밖"} · ${pl.items.length}곡</span></div></div>
       <button data-m="tape-play" data-pl="${esc(plId)}"><i class="ic ic-play"></i>재생하기</button>
       <button data-m="tape-open" data-pl="${esc(plId)}"><i class="ic ic-tape"></i>테이프 열기</button>
@@ -1989,7 +2088,7 @@
   // 곡을 테이프에 담기 (곡 메뉴·여러 곡 선택): 상자의 「테이프 추가하기」와 같은 화면. 누르면 바로 담긴다
   function addToPlaylistModal(ids) {
     const one = ids.length === 1;
-    const T = sortedTapes().filter((p) => p.id !== "liked"); // 최근에 들은 순 (아끼는 곡은 하트로 담는다)
+    const T = sortedTapes().filter((p) => !isSysTape(p.id)); // 최근에 들은 순 (시스템·히스토리 테이프는 저절로 채워져 담을 수 없다)
     const cell = (p) => `<div class="pick-tape" role="button" tabindex="0" data-pl="${esc(p.id)}" title="「${esc(p.name)}」에 담기">${cassette(p, bandTrack(p), { noHeart: true })}${one && p.items.includes(ids[0]) ? '<span class="already">담겨 있음</span>' : ""}</div>`;
     const tail = `<button class="tape-new" data-pl="__new"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button>`;
     openModal(`<h3>테이프에 담기</h3><p class="dimmer" style="margin:-8px 0 12px;font-size:13px">${one ? "" : `${ids.length}곡을 `}담을 테이프를 눌러 주세요</p>
@@ -2048,12 +2147,15 @@
 
   // ── 상자 고치기 ──
   function saveBox(b, patch, quiet) {
+    if (b.system) return Promise.resolve(); // 시스템 상자는 고칠 수 없다
     Object.assign(b, patch, { updated: Date.now() });
     if (!quiet) rerender();
     return API.updateBox(b.id, patch).catch((e) => toast("저장하지 못했어요: " + e.message));
   }
   // 테이프들을 target 상자로 옮긴다 (null이면 상자에서 꺼내기). 다른 상자에 있던 건 거기서 빠진다
   function moveTapes(ids, target, quiet) {
+    ids = ids.filter((id) => !isSysTape(id)); // 시스템 테이프는 시스템 상자에만
+    if (target && target.system) return;
     for (const b of L.boxes) {
       if (b === target) continue;
       const items = b.items.filter((id) => !ids.includes(id));
@@ -2117,7 +2219,7 @@
   // 상자 편집 → 「테이프 추가하기」: 이 상자에 없는 테이프를 골라 넣는다. 다른 상자의 테이프는 이 상자로 옮겨 온다
   function addTapesModal(b) {
     const pick = new Set();
-    const T = sortedTapes().filter((pl) => !b.items.includes(pl.id)); // 이 상자에 이미 든 테이프는 보이지 않는다
+    const T = sortedTapes().filter((pl) => !b.items.includes(pl.id) && !isSysTape(pl.id)); // 이 상자에 이미 든 테이프·시스템 테이프는 보이지 않는다
     const inOther = (pl) => (boxOf(pl.id) ? 1 : 0), LABEL = ["", "다른 상자에 든 테이프"]; // 상자 밖 먼저, 다른 상자에 든 건 구분선 뒤에
     if (!T.length) { toast("더 넣을 테이프가 없어요"); return; }
     const badge = (pl) => { if (pick.has(pl.id)) return '<span class="already">고름</span>'; const o = boxOf(pl.id); return o ? `<span class="already other">${esc(o.name)}</span>` : ""; };
@@ -2252,7 +2354,7 @@
         case "album-play": { e.preventDefault(); e.stopPropagation(); const al = L.albums.get(a.closest("[data-album]").dataset.album); P.playList(al.tracks.map((t) => t.id), 0, { type: "album", id: al.key, name: al.title }); return; }
         case "col-filter": colState.filter = a.dataset.v; saveCol(); if (route().arg) location.hash = "#/collection"; else rerender(); return;
         case "new-playlist": playlistModal(null, null, a.dataset.into); return;
-        case "pl-tape-play": { e.preventDefault(); const name = a.dataset.list; const ctx = ctxFor(name); const pl = name === "liked" ? likedPl() : curPlaylist(); if (P.current && nowCtx() && nowCtx().id === ctx.id) P.toggle(); else if (pl && pl.items.length) P.playList(pl.items, 0, ctx); return; }
+        case "pl-tape-play": { e.preventDefault(); const name = a.dataset.list; const ctx = ctxFor(name); const pl = name === "liked" ? likedPl() : tapeById(route().arg); if (P.current && nowCtx() && nowCtx().id === ctx.id) P.toggle(); else if (pl && pl.items.length) P.playList(pl.items, 0, ctx); return; }
         case "pl-edit": plEdit = !plEdit; if (SEL.on) selEnd(); rerender(); return;
         case "sel-start": selStart(null, a.dataset.list); return;
         case "sel-head": selHead(a); return;
@@ -2267,7 +2369,9 @@
         case "sel-next": { const ids = SEL.ids.slice(); if (!ids.length) return; selEnd(); P.playNext(ids); toast(`${ids.length}곡을 다음에 재생해요`); return; }
         case "sel-addpl": { const ids = SEL.ids.slice(); if (!ids.length) return; selEnd(); addToPlaylistModal(ids); return; }
         case "pl-more": { const r = a.getBoundingClientRect(); const p = curPlaylist(), bx = p && boxOf(p.id); openMenu(r.right - 240, r.bottom + 6, `<button data-m="pl-rename"><i class="ic ic-pen"></i>이름·설명 고치기</button><button data-m="pl-queue"><i class="ic ic-queue"></i>대기열에 추가</button>${p ? `<button data-m="tape-box" data-pl="${esc(p.id)}"><i class="ic ic-box"></i>${bx ? "다른 상자로 옮기기…" : "상자에 넣기…"}</button>` : ""}${bx ? `<button data-m="tape-unbox" data-pl="${esc(p.id)}"><i class="ic ic-x"></i>상자에서 꺼내기</button>` : ""}<hr><button data-m="pl-delete" class="danger"><i class="ic ic-trash"></i>테이프 삭제하기</button>`); return; }
-        case "box-more": { const r = a.getBoundingClientRect(); openMenu(r.right - 240, r.bottom + 6, `<button data-m="box-rename"><i class="ic ic-pen"></i>상자 이름 고치기</button><button data-m="box-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="box-delete" class="danger"><i class="ic ic-trash"></i>상자 삭제하기</button>`); return; }
+        case "box-more": { const r = a.getBoundingClientRect(); const cb = curBox();
+          if (cb && cb.system) { openMenu(r.right - 240, r.bottom + 6, `<button data-m="box-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="box-hide" data-bx="${esc(cb.id)}"><i class="ic ic-x"></i>상자 숨기기</button>`); return; }
+          openMenu(r.right - 240, r.bottom + 6, `<button data-m="box-rename"><i class="ic ic-pen"></i>상자 이름 고치기</button><button data-m="box-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="box-delete" class="danger"><i class="ic ic-trash"></i>상자 삭제하기</button>`); return; }
         case "box-edit": boxEdit = !boxEdit; rerender(); return;
         case "box-remove": { e.stopPropagation(); const bx = curBox(), pl = tapeById(a.dataset.pl); if (bx) { saveBox(bx, { items: bx.items.filter((x) => x !== a.dataset.pl) }); if (pl) toast(`「${pl.name}」을(를) 상자에서 뺐어요`); } return; }
         case "box-add-open": { const bx = curBox(); if (bx) addTapesModal(bx); return; }
@@ -2284,6 +2388,8 @@
         case "export-pick": try { window.NativeBridge.pickExportDir(); } catch (err) {} return;
         case "export-now": try { window.NativeBridge.exportNow(); } catch (err) {} toast("테이프를 파일로 저장하고 있어요"); return;
         case "export-clear": try { window.NativeBridge.clearExportDir(); } catch (err) {} toast("저장 폴더를 해제했어요. 이미 만든 파일은 그대로 있어요"); rerender(); return;
+        case "box-show": { const on = !a.classList.contains("on"); setBoxHidden(a.dataset.bx, !on); renderSidebar(); rerender(); toast(on ? "다시 보이게 했어요" : "숨겼어요"); return; }
+        case "export-hist": { const on = !a.classList.contains("on"); try { window.NativeBridge.setExportHist(on); } catch (err) {} toast(on ? "히스토리 상자도 저장해요" : "히스토리 상자는 이제 저장하지 않아요. 이미 만든 파일은 그대로 있어요"); rerender(); return; }
         case "export-auto": { const on = !a.classList.contains("on"); try { window.NativeBridge.setExportAuto(on); } catch (err) {} toast(on ? "자동 저장을 켰어요. 그동안 바뀐 것도 맞춰 둘게요" : "자동 저장을 껐어요. 「지금 저장」을 누를 때만 저장해요"); rerender(); return; }
         case "pldir-clear": try { window.NativeBridge.clearPlaylistDir(); } catch (err) {} toast("가져오기 폴더를 해제했어요. 이미 가져온 테이프는 남아 있어요"); rerender(); return;
         case "fd-open": { const p = a.dataset.path; FD.open.has(p) ? FD.open.delete(p) : FD.open.add(p); renderFolderCard(); return; }
@@ -2363,7 +2469,7 @@
     const r = route();
     if (name === "album") { const a = L.albums.get(r.arg); return { type: "album", id: r.arg, name: a && a.title }; }
     if (name.startsWith("artist")) return { type: "artist", id: r.arg, name: r.arg };
-    if (name === "playlist") { const p = curPlaylist(); return { type: "playlist", id: r.arg, name: p && p.name }; }
+    if (name === "playlist") { const p = tapeById(r.arg); return { type: "playlist", id: r.arg, name: p && p.name }; }
     if (name === "liked") return { type: "playlist", id: "liked", name: "아끼는 곡" };
     if (name === "box") { const b = curBox(); return b ? boxCtx(b) : { type: "box", id: r.arg }; }
     if (name === "collection") return { type: "collection", id: "collection", name: "곡 목록" };
@@ -2386,7 +2492,7 @@
   // 테이프 재생: 이미 그 테이프를 재생 중이면 처음부터 다시 틀지 않고 재생 화면만 연다
   function playTape(plId) {
     if (tempTape(plId)) { playSysTape(plId); return; } // 임의 테이프
-    const pl = plId === "liked" ? likedPl() : L.playlists.find((p) => p.id === plId);
+    const pl = tapeById(plId);
     if (!pl) return;
     if (isPlayingPl(pl) && P.current) { if (!P.playing) P.play(); openFull(); return; }
     const ids = pl.items.filter((id) => L.byId.has(id));
@@ -2406,7 +2512,7 @@
   let TD = null;
   // 상자 화면에서는 위쪽 상자 그림(data-unbox)이 「상자 밖으로」 놓는 자리가 된다 (편집 중엔 순서 바꾸기 손잡이를 쓰므로 제외)
   const DROP = ".tbox[data-box], [data-unbox]";
-  const dragSrc = (t) => { const el = t && t.closest && t.closest(".tape-grid .tape[data-pl]"); return el && view.contains(el) && !el.closest(".editing") && !el.dataset.pl.startsWith("tmp-") && $(DROP, view) ? el : null; };
+  const dragSrc = (t) => { const el = t && t.closest && t.closest(".tape-grid .tape[data-pl]"); return el && view.contains(el) && !el.closest(".editing") && !el.dataset.pl.startsWith("tmp-") && !isSysTape(el.dataset.pl) && $(DROP, view) ? el : null; };
   function tdLift(x, y) {
     const el = TD.el, r = el.getBoundingClientRect();
     const k = Math.min(1, 200 / r.width); // 손에 든 테이프는 작게
@@ -2421,7 +2527,8 @@
   function tdMove(x, y) {
     TD.x = x; TD.y = y;
     TD.g.style.transform = `translate(${x - TD.ox}px, ${y - TD.oy}px) rotate(-3deg)`;
-    const hit = document.elementFromPoint(x, y), bx = hit && hit.closest(DROP);
+    const hit = document.elementFromPoint(x, y); let bx = hit && hit.closest(DROP);
+    if (bx && (bx.dataset.box === "sys" || bx.dataset.box === "hist")) bx = null; // 시스템·히스토리 상자에는 넣을 수 없다
     if (bx !== TD.over) { if (TD.over) TD.over.classList.remove("drop-over"); TD.over = bx; if (bx) bx.classList.add("drop-over"); }
   }
   // 위·아래 끝으로 끌고 가면 화면이 따라 움직인다 (상자 줄이 위로 지나가 있어도 닿게)
@@ -2642,8 +2749,9 @@
   // ───────── 시작 ─────────
   // 상자를 모르는 예전 폰 앱이면 상자 없이
   const loadBoxes = () => API.boxes().then((b) => b || []).catch(() => []);
+  const loadHistory = () => (API.history ? API.history() : Promise.resolve([])).then((h) => (L.history = Array.isArray(h) ? h : [])).catch(() => (L.history = []));
   async function reloadLibrary() {
-    const [lib, pls, bxs] = await Promise.all([API.library(), API.playlists(), loadBoxes()]);
+    const [lib, pls, bxs] = await Promise.all([API.library(), API.playlists(), loadBoxes(), loadHistory()]);
     indexLibrary(lib.tracks || []); L.playlists = pls || []; L.boxes = bxs;
     renderSidebar(); rerender(); renderBar();
   }
@@ -2674,7 +2782,7 @@
       L.debug = !!st.debug;
       if (L.debug) devWatch();
       if (!st.authorized) return showGate();
-      const [lib, pls, bxs] = await Promise.all([API.library(), API.playlists(), loadBoxes()]);
+      const [lib, pls, bxs] = await Promise.all([API.library(), API.playlists(), loadBoxes(), loadHistory()]);
       indexLibrary(lib.tracks || []); L.playlists = pls || []; L.boxes = bxs;
     } catch (e) {
       if (e instanceof API.Unauthorized) return showGate();
@@ -2698,6 +2806,7 @@
       if (!tl.done && tl.ms >= TAPE_MS) { tl.done = true; markTapePlayed(); }
     });
     P.on("played", markTapePlayed);
+    P.on("played", U.debounce(() => loadHistory().then(() => { renderSidebar(); if (["box", "playlist"].includes(route().name) && /^(hist|hist-)/.test(route().arg)) rerender(); }), 1500)); // 이번 달 히스토리 테이프
     P.on("queue", () => {
       if (panelOpen && panelTab === "queue") renderPanel(); if (npSide === "queue") renderNpSide();
       refreshHomeNow();

@@ -338,6 +338,8 @@ public class MainActivity extends ComponentActivity {
         }
         @JavascriptInterface public void exportNow() { PlaylistExport.saveSoon(app); }
         @JavascriptInterface public boolean getExportAuto() { return PlaylistExport.auto(app.db); }
+        @JavascriptInterface public boolean getExportHist() { return PlaylistExport.hist(app.db); }
+        @JavascriptInterface public void setExportHist(boolean on) { app.db.put(PlaylistExport.K_HIST, on ? "1" : "0"); if (on) PlaylistExport.saveSoon(app); }
         @JavascriptInterface public void setExportAuto(boolean on) { app.db.put(PlaylistExport.K_AUTO, on ? "1" : "0"); if (on) PlaylistExport.saveSoon(app); } // 다시 켜면 그동안 바뀐 것을 한 번 맞춘다
         @JavascriptInterface public void clearPlaylistDir() {
             String u = app.db.get(PlaylistImport.K_DIR, "");

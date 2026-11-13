@@ -28,7 +28,7 @@ public class Db extends SQLiteOpenHelper {
         public String memo;
     }
 
-    public Db(Context c) { super(c, "collection.db", null, 4); }
+    public Db(Context c) { super(c, "collection.db", null, 5); }
 
     @Override public void onConfigure(SQLiteDatabase db) { db.enableWriteAheadLogging(); }
 
@@ -47,6 +47,7 @@ public class Db extends SQLiteOpenHelper {
         createLyrics(db);
         createRejected(db);
         createBoxes(db);
+        createMonthPlays(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int o, int n) {
@@ -54,6 +55,32 @@ public class Db extends SQLiteOpenHelper {
         else if (o < 3) db.execSQL("ALTER TABLE lyrics ADD COLUMN chk INTEGER DEFAULT 0");
         if (o < 3) createRejected(db);
         if (o < 4) createBoxes(db);
+        if (o < 5) createMonthPlays(db);
+    }
+
+    /** 히스토리 상자: 달마다(yyyy-MM) 곡별로 「한 번 들었다」로 센 횟수. 그 달에 가장 많이 들은 30곡을 만든다 */
+    private static void createMonthPlays(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS month_plays (month TEXT NOT NULL, key TEXT NOT NULL, plays INTEGER DEFAULT 0, last INTEGER DEFAULT 0, PRIMARY KEY (month, key))");
+    }
+
+    private static String monthOf(long t) {
+        java.util.Calendar c = java.util.Calendar.getInstance(); c.setTimeInMillis(t);
+        return String.format(java.util.Locale.ROOT, "%04d-%02d", c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1);
+    }
+
+    /** 달마다 가장 많이 들은 곡 (최근 달부터). [{month:"2026-11", items:[곡 키…]}] */
+    public synchronized JSONArray monthlyTop(int limit) throws JSONException {
+        JSONArray out = new JSONArray();
+        java.util.LinkedHashMap<String, JSONArray> by = new java.util.LinkedHashMap<>();
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT month, key FROM month_plays ORDER BY month DESC, plays DESC, last DESC", null)) {
+            while (c.moveToNext()) {
+                JSONArray a = by.get(c.getString(0));
+                if (a == null) { a = new JSONArray(); by.put(c.getString(0), a); }
+                if (a.length() < limit) a.put(c.getString(1));
+            }
+        }
+        for (java.util.Map.Entry<String, JSONArray> e : by.entrySet()) out.put(new JSONObject().put("month", e.getKey()).put("items", e.getValue()));
+        return out;
     }
 
     /** PC가 음원에 맞춰 만들어 보낸 시간 가사(LRC). 파일 태그보다 먼저 쓴다 */
@@ -110,6 +137,9 @@ public class Db extends SQLiteOpenHelper {
                         " last_played = CASE WHEN ? = 1 THEN ? ELSE last_played END," +
                         " first_played = CASE WHEN ? = 1 AND IFNULL(first_played,0) = 0 THEN ? ELSE first_played END WHERE key = ?",
                 new Object[]{Math.max(0, listenedMs), counted ? 1 : 0, counted ? 1 : 0, now, counted ? 1 : 0, now, key});
+        if (counted) getWritableDatabase().execSQL(
+                "INSERT INTO month_plays (month, key, plays, last) VALUES (?, ?, 1, ?) ON CONFLICT(month, key) DO UPDATE SET plays = plays + 1, last = excluded.last",
+                new Object[]{monthOf(now), key, now});
     }
 
     /** 설정 → 기록 초기화: 고른 것만 지운다 (수집 번호·메모·테이프·상자는 그대로) */
@@ -119,6 +149,7 @@ public class Db extends SQLiteOpenHelper {
         if (favs) { v.put("fav", 0); v.put("fav_at", 0); }
         if (history) { v.put("first_played", 0); v.put("last_played", 0); }
         if (v.size() > 0) getWritableDatabase().update("meta", v, null, null);
+        if (plays) getWritableDatabase().delete("month_plays", null, null); // 히스토리 상자도 들은 횟수에서 나온다
     }
 
     public synchronized void setFav(String key, boolean fav) {

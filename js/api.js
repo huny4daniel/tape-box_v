@@ -25,6 +25,7 @@
     lyrics: (id) => req("GET", "/api/lyrics/" + encodeURIComponent(id)),
     revertLyrics: (id) => req("DELETE", "/api/lyrics/" + encodeURIComponent(id) + "?reject=1"),
     setTrack: (id, patch) => req("POST", "/api/track/" + encodeURIComponent(id), patch),
+    history: () => req("GET", "/api/history"), // 히스토리 상자: [{ month: "2026-11", items: [곡 id…] }]
     resetRecords: (what) => req("POST", "/api/reset-records", what), // { plays, favs, history }
     reportPlay: (id, listenedMs, counted) => req("POST", "/api/plays", { id, listenedMs: Math.round(listenedMs), counted: !!counted }),
     playlists: () => req("GET", "/api/playlists"),

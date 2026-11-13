@@ -34,6 +34,7 @@ final class PlaylistExport {
     static final String K_DIR = "export_dir";
     static final String K_MAP = "export_map";
     static final String K_AUTO = "export_auto"; // "0"이면 자동 저장을 끈다 (「지금 저장」으로만)
+    static final String K_HIST = "export_hist"; // "0"이면 히스토리 상자는 저장하지 않는다 (이미 만든 히스토리 파일은 그대로 둔다)
     static final String MARK = "#TAPEBOX:";
     private static final String MIME = "application/octet-stream"; // 이름 끝에 확장자를 덧붙이지 않게
     private static final ExecutorService EX = Executors.newSingleThreadExecutor();
@@ -43,6 +44,7 @@ final class PlaylistExport {
     private PlaylistExport() {}
 
     static boolean auto(Db db) { return !"0".equals(db.get(K_AUTO, "1")); }
+    static boolean hist(Db db) { return !"0".equals(db.get(K_HIST, "1")); }
 
     /** 테이프·상자가 바뀌면 부른다 (자동 저장을 껐으면 아무것도 안 한다). 잇달아 바뀌어도 1.5초 뒤 한 번만 저장한다 */
     static void schedule(App app) {
@@ -129,6 +131,19 @@ final class PlaylistExport {
             want.put(id, new String[]{folder, file, content(app, pl)});
         }
 
+        // 히스토리 상자: 달마다 가장 많이 들은 30곡 (시스템 상자와 달리 파일로도 남긴다)
+        String histFolder = "히스토리 상자", base = histFolder;
+        for (int n = 2; usedFolders.contains(histFolder.toLowerCase(Locale.ROOT)); n++) histFolder = base + " (" + n + ")";
+        boolean saveHist = hist(app.db);
+        JSONArray hist = saveHist ? app.db.monthlyTop(30) : new JSONArray();
+        for (int i = 0; i < hist.length(); i++) {
+            JSONObject h = hist.getJSONObject(i);
+            String month = h.getString("month"); // "2026-11"
+            String title = month.substring(0, 4) + ". " + Integer.parseInt(month.substring(5)) + ".";
+            JSONObject pl = new JSONObject().put("id", "hist-" + month).put("name", title).put("items", h.getJSONArray("items"));
+            want.put("hist-" + month, new String[]{histFolder, safe(title.substring(0, title.length() - 1)) + ".m3u8", content(app, pl)});
+        }
+
         JSONObject map = new JSONObject(app.db.get(K_MAP, "{}"));
         JSONObject dirs = map.optJSONObject("_dirs"); if (dirs == null) dirs = new JSONObject();
         JSONObject files = map.optJSONObject("files"); if (files == null) files = new JSONObject();
@@ -138,6 +153,7 @@ final class PlaylistExport {
         for (java.util.Iterator<String> it = files.keys(); it.hasNext(); ) {
             String id = it.next();
             JSONObject e = files.getJSONObject(id);
+            if (!saveHist && id.startsWith("hist-")) { next.put(id, e); continue; }
             String[] w = want.get(id);
             if (w != null && (w[0] + "/" + w[1]).equals(e.optString("path"))) continue;
             delete(cr, tree, e.optString("doc"));

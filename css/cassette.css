@@ -663,3 +663,13 @@ body.tape-dragging [data-unbox].drop-over::after { border-color: var(--accent); 
 /* 테이프 고르기 팝업 위 검색창 */
 .pick-search { width: 100%; flex: none; margin-bottom: 12px; }
 .pick-empty { grid-column: 1 / -1; text-align: center; padding: 28px 0; margin: 0; }
+
+/* 시스템·히스토리 상자: 같은 골판지지만 오래 둔 듯 조금 짙고 붉은 색으로 살짝 다르게 (튀지 않게) */
+.tbox.is-sysbox .tbox-front {
+  background:
+    repeating-linear-gradient(90deg, rgba(80,40,20,.06) 0 .5cqw, transparent .5cqw 1.6cqw),
+    linear-gradient(180deg, rgba(255,225,195,.18), rgba(255,225,195,0) 14%),
+    linear-gradient(180deg, #b98559, #96653f);
+}
+.tbox.is-sysbox .tbox-flap { background: linear-gradient(180deg, #c99566, #a5714a); }
+.tbox.is-sysbox .tbox-back { background: linear-gradient(180deg, #7e4f2e, #55341c); }
