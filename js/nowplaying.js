@@ -78,10 +78,16 @@ function bindRange(r, get, commit, preview) {
 
 // ───────── 가사 ─────────
 const lyrCache = new Map();
+// 설정 → 가사 「만든 싱크 가사 쓰기」: 끄면 PC에서 만든 싱크 가사는 무시하고 음원 파일에 있는 가사만 (만든 가사는 지우지 않는다)
+const useMadeLyrics = () => !Prefs.get("lyrMadeOff", false);
+function pickLyrics(d) {
+  if (!d || d.failed || useMadeLyrics() || !d.source || d.source === "file") return d;
+  return { synced: null, plain: d.plain || null, source: "file" }; // 만든 싱크 가사 자리에 파일의 일반 가사
+}
 function getLyrics(id) {
   if (lyrCache.has(id)) return lyrCache.get(id);
   // 연결이 잠깐 끊겨 실패한 결과는 기억하지 않는다 (다음에 다시 불러오게)
-  const p = API.lyrics(id).catch(() => { lyrCache.delete(id); return { failed: true }; });
+  const p = API.lyrics(id).then(pickLyrics).catch(() => { lyrCache.delete(id); return { failed: true }; });
   lyrCache.set(id, p); return p;
 }
 let lyrState = null; // {id, data, boxes:[el]}
@@ -165,20 +171,33 @@ function renderPanel() {
     // PC 오른쪽 가사도 재생 화면과 같은 줄 메모지에
     body.innerHTML = `<div class="np-memo paper panel-memo"><div class="np-memo-page"><div data-lyr></div></div></div>`;
     mountLyrics($("[data-lyr]", body));
-  } else body.innerHTML = queueHtml();
+  } else { body.innerHTML = queueHtml(); scrollQueueToNow(body); }
 }
+// 대기열: 들은 곡도 지우지 않고 재생 순서대로 쭉 보여 주고, 지금 곡은 그 자리에서 강조한다
+const Q_BEFORE = 100, Q_SHOW = 300; // 아주 긴 대기열은 지금 곡 앞뒤만
 function queueHtml() {
   const q = P.queue, i = P.index;
-  if (i < 0) return `<div class="queue"><p class="dimmer" style="padding:16px">대기열이 비어 있어요</p></div>`;
-  const cur = L.byId.get(q[i]);
-  const up = q.slice(i + 1, i + 101);
-  const qrow = (id, k, now) => { const t = L.byId.get(id); if (!t) return ""; return `<div class="q-row${now ? " now" : ""}" data-q="${k}">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>${now ? "" : `<button class="icon-btn" data-act="q-remove" title="대기열에서 빼기"><i class="ic ic-x"></i></button><span class="q-grip" title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span>`}</div>`; };
+  if (i < 0 || !q.length) return `<div class="queue"><p class="dimmer" style="padding:16px">대기열이 비어 있어요</p></div>`;
+  const from = Math.max(0, Math.min(i - Q_BEFORE, q.length - Q_SHOW)), to = Math.min(q.length, from + Q_SHOW);
+  const qrow = (id, k) => {
+    const t = L.byId.get(id); if (!t) return "";
+    const now = k === i;
+    return `<div class="q-row${now ? " now" + (P.playing ? "" : " paused") : k < i ? " played" : ""}" data-q="${k}">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div>`
+      + (now ? `<span class="q-eq" title="지금 재생 중"><i></i><i></i><i></i></span>` : `<button class="icon-btn" data-act="q-remove" title="대기열에서 빼기"><i class="ic ic-x"></i></button>`)
+      + `<span class="q-grip${now ? " off" : ""}" title="끌어서 순서 바꾸기"><i class="ic ic-drag"></i></span></div>`;
+  };
   const ctx = P.context;
   return `<div class="queue">
-    <h4>지금 재생 중</h4>${qrow(cur.id, i, true)}
-    ${up.length ? `<h4>다음 곡${ctx && ctx.name ? ` · <span class="dim" style="font-weight:600">${esc(ctx.name)}</span>` : ""}</h4>${up.map((id, k) => qrow(id, i + 1 + k)).join("")}` : `<p class="dimmer" style="padding:8px 8px 0;font-size:13px">다음 곡이 없어요</p>`}
-    ${q.length - i - 1 > 100 ? `<p class="dimmer" style="padding:8px;font-size:12px">외 ${q.length - i - 101}곡</p>` : ""}
+    <h4>${ctx && ctx.name ? esc(ctx.name) : "대기열"} <span class="dim" style="font-weight:600">· ${U.num(i + 1)} / ${U.num(q.length)}</span></h4>
+    ${from > 0 ? `<p class="dimmer q-more">앞 ${U.num(from)}곡</p>` : ""}
+    ${q.slice(from, to).map((id, k) => qrow(id, from + k)).join("")}
+    ${to < q.length ? `<p class="dimmer q-more">외 ${U.num(q.length - to)}곡</p>` : ""}
   </div>`;
+}
+// 대기열을 그린 뒤 지금 곡이 보이게 (위에 두어 줄 남기고)
+function scrollQueueToNow(body) {
+  const row = body && $(".q-row.now", body); if (!row) return;
+  body.scrollTop += row.getBoundingClientRect().top - body.getBoundingClientRect().top - 80;
 }
 
 // ───────── 재생 화면 (PC·폰 공통 전체 화면): 돌아가는 카세트 + 조작 + 재생목록 ─────────
@@ -450,6 +469,6 @@ function renderNpSide() {
   if (npSide === "lyrics") { body.innerHTML = `<div class="np-memo paper panel-memo"><div class="np-memo-page"><div data-lyr></div></div></div>`; mountLyrics($("[data-lyr]", body)); }
   else {
     body.innerHTML = queueHtml();
-    const nowRow = $(".q-row.now", body); if (nowRow) body.scrollTop = Math.max(0, nowRow.offsetTop - 40);
+    scrollQueueToNow(body);
   }
 }

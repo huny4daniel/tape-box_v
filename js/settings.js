@@ -20,6 +20,7 @@ pages.settings = () => {
     <div class="set-card"><h3>기본 상자</h3><p>앱이 저절로 만들어 두는 상자예요. 숨겨도 기록은 그대로 쌓여요.</p>
       <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">시스템 상자</h3><p>${SYS_TAPES.map((x) => x[1]).join(" · ")}</p></div><button class="switch${sysHidden() ? "" : " on"}" data-act="box-show" data-bx="sys" aria-label="시스템 상자 보이기"></button></div>
       <div class="set-row" style="margin-top:12px"><div><h3 style="font-size:15px">히스토리 상자</h3><p>달마다 그 달에 가장 많이 들은 30곡</p></div><button class="switch${histHidden() ? "" : " on"}" data-act="box-show" data-bx="hist" aria-label="히스토리 상자 보이기"></button></div></div>
+    <div class="set-card"><div class="set-row"><div><h3>만든 싱크 가사 쓰기</h3><p>${useMadeLyrics() ? "PC의 「싱크 가사 만들기」로 만든 시간 가사를 보여 줘요" : "꺼져 있어요. 음원 파일에 원래 들어 있는 가사만 보여 줘요 (만든 싱크 가사는 지우지 않고 남아 있어요)"}</p></div><button class="switch${useMadeLyrics() ? " on" : ""}" data-act="lyr-made" aria-label="만든 싱크 가사 쓰기"></button></div></div>
     <div class="set-card"><div class="set-row"><div><h3>기록 초기화</h3><p>들은 횟수, 아끼는 곡 표시, 최근 들은 기록 중 고른 것을 지워요. 수집 번호·메모·테이프·상자는 그대로 남아요.</p></div><button class="btn" data-act="reset-records">초기화…</button></div></div>
     <div class="set-card"><div class="set-row"><div><h3>라이브러리 다시 읽기</h3><p>폰에 새 곡을 넣었는데 안 보이면 눌러 주세요. 수집 번호와 기록은 그대로 남아요.</p></div><button class="btn" data-act="rescan">다시 읽기</button></div></div>
     ${N ? exportDirCard(N) : ""}

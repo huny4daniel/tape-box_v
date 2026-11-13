@@ -31,7 +31,7 @@ pages.home = () => {
     ${section("새로 들인 곡", "가장 최근에 컬렉션에 들어온 노래들", `<div class="shelf scroll" data-hscroll>${fresh.map((t) => trackCard(t)).join("")}</div>`, "#/collection/sort-new")}
     ${longAgo.length ? section("오랜만이에요", "한때 자주 들었지만 한동안 못 만난 곡", `<div class="shelf scroll" data-hscroll>${longAgo.map((t) => trackCard(t, "마지막 " + U.ago(t.lastPlayed))).join("")}</div>`) : ""}
     ${SHOW_UNHEARD && unheard.length ? section("아직 만나지 못한 곡", `소장했지만 한 번도 듣지 않은 곡이 ${U.num(unheard.length)}곡 있어요`, `<div class="shelf scroll" data-hscroll>${U.pick(unheard, 14, rnd).map((t) => trackCard(t, t.artist)).join("")}</div>`, "#/collection/unheard") : ""}
-    ${top.length ? section("가장 많이 들은 곡", null, trackList("home-top", top, "index")) : ""}
+    ${top.length ? section("가장 많이 들은 곡", null, trackList("home-top", top, "plays")) : ""}
     ${topArtists.length ? section("많이 들은 아티스트", null, `<div class="shelf scroll artist-row" data-hscroll>${topArtists.map((r) => artistCard(r, U.num(r.plays) + "번 재생")).join("")}</div>`, "#/artists/sort-plays") : ""}
     ${decades.length ? section("시대별 컬렉션", null, `<div class="shelf scroll" data-hscroll>${decades.map((d) => `<a class="card" href="#/year/${d}">${mosaic(U.pick(dec[d], 40, U.seeded(d)), 300)}<b>${d}년대</b><span>${U.num(dec[d].length)}곡</span></a>`).join("")}</div>`) : ""}
   </div>`;
@@ -633,7 +633,7 @@ document.addEventListener("pointerdown", (e) => {
     clear();
     const over = document.elementFromPoint(ev.clientX, ev.clientY);
     const r = over && over.closest(".q-row[data-q]");
-    if (r && box.contains(r) && !r.classList.contains("now")) {
+    if (r && box.contains(r)) {
       const rect = r.getBoundingClientRect(), after = ev.clientY > rect.top + rect.height / 2;
       r.classList.add(after ? "drop-after" : "drop-before");
       to = +r.dataset.q + (after ? 1 : 0); if (to > from) to--;
@@ -644,7 +644,7 @@ document.addEventListener("pointerdown", (e) => {
     window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
     clear(); rowEl.classList.remove("dragging");
     U._suppressClick = Date.now(); // 놓은 자리의 줄이 눌린 것으로 처리되지 않게
-    if (to !== from && to > P.index) P.move(from, to);
+    if (to !== from) P.move(from, to);
   };
   window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
 }, true);

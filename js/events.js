@@ -112,6 +112,12 @@ document.addEventListener("click", (e) => {
       case "export-pick": try { window.NativeBridge.pickExportDir(); } catch (err) {} return;
       case "export-now": try { window.NativeBridge.exportNow(); } catch (err) {} toast("테이프를 파일로 저장하고 있어요"); return;
       case "export-clear": try { window.NativeBridge.clearExportDir(); } catch (err) {} toast("저장 폴더를 해제했어요. 이미 만든 파일은 그대로 있어요"); rerender(); return;
+      case "lyr-made": { // 만든 싱크 가사 쓰기 (모든 기기에 같이 적용)
+        const on = !a.classList.contains("on");
+        Prefs.set({ lyrMadeOff: on ? null : true });
+        lyrCache.clear(); $$("[data-lyr]").forEach((b) => mountLyrics(b)); // 열려 있는 가사도 바로 바꾼다
+        rerender(); toast(on ? "만든 싱크 가사를 다시 보여 줘요" : "음원 파일의 원래 가사만 보여 줘요"); return;
+      }
       case "box-show": { const on = !a.classList.contains("on"); setBoxHidden(a.dataset.bx, !on); renderSidebar(); rerender(); toast(on ? "다시 보이게 했어요" : "숨겼어요"); return; }
       case "export-hist": { const on = !a.classList.contains("on"); try { window.NativeBridge.setExportHist(on); } catch (err) {} toast(on ? "히스토리 상자도 저장해요" : "히스토리 상자는 이제 저장하지 않아요. 이미 만든 파일은 그대로 있어요"); rerender(); return; }
       case "export-auto": { const on = !a.classList.contains("on"); try { window.NativeBridge.setExportAuto(on); } catch (err) {} toast(on ? "자동 저장을 켰어요. 그동안 바뀐 것도 맞춰 둘게요" : "자동 저장을 껐어요. 「지금 저장」을 누를 때만 저장해요"); rerender(); return; }
@@ -448,6 +454,7 @@ function onState() {
   const id = P.currentId;
   const changed = id !== lastId; lastId = id;
   renderBar(); refreshHomeNow();
+  $$(".q-row.now").forEach((r) => r.classList.toggle("paused", !P.playing)); // 대기열의 지금 곡 표시 (멈추면 막대도 멈춘다)
   if (changed) syncWidgetName(); // 상자 통째 재생에서 다음 테이프로 넘어가면 위젯 테이프 이름도
   $$(".row.now, .lp.now, .card.now").forEach((r) => r.classList.remove("now", "paused"));
   if (id) {

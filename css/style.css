@@ -342,6 +342,33 @@ body.no-bar #playerbar { display: none; }
 .tl-head > .ck + .r, .row .no { padding-right: 20px; }
 .tl-head .dur, .row .dur { padding-right: 12px; } /* 길이와 하트 사이를 띄운다 */ /* #과 제목 사이를 띄운다 */
 .row { height: 60px; border-radius: 6px; cursor: default; }
+/* 목록 칸이 좁으면 (PC 세로 화면, 옆 패널을 연 좁은 창): 앨범을 먼저 빼고, 더 좁으면 앨범아트·제목·아티스트만 */
+.tracklist { container-type: inline-size; }
+@container (max-width: 860px) {
+  .tl-head, .row { grid-template-columns: 20px 48px minmax(0, 1fr) 58px 34px 34px; }
+  .tl-head .alb, .row .alb { display: none; }
+}
+@container (max-width: 680px) {
+  .tl-head { display: none; }
+  .row { display: flex; height: 62px; padding: 0 8px; gap: 10px; }
+  .row .t { flex: 1; min-width: 0; }
+  .row .ck, .row .no, .row .alb, .row .dur, .row .fav:not(.on) { display: none; }
+  .row .no.pl-row-handle { display: grid; place-items: center; flex: none; width: 28px; padding: 0; } /* 편집 중엔 손잡이는 남긴다 */
+  .row .fav.on { display: grid; visibility: visible; width: 22px; }
+  .row .more { visibility: visible; }
+  body.selecting #view .row .ck:not(.off) { display: block; flex: none; }
+}
+/* PC 세로 화면: 폭이 남아도 앨범아트·제목·아티스트만 */
+@media (orientation: portrait) and (min-width: 821px) {
+  .tl-head { display: none; }
+  .row { display: flex; height: 62px; padding: 0 8px; gap: 10px; }
+  .row .t { flex: 1; min-width: 0; }
+  .row .ck, .row .no, .row .alb, .row .dur, .row .fav:not(.on) { display: none; }
+  .row .no.pl-row-handle { display: grid; place-items: center; flex: none; width: 28px; padding: 0; } /* 편집 중엔 손잡이는 남긴다 */
+  .row .fav.on { display: grid; visibility: visible; width: 22px; }
+  .row .more { visibility: visible; }
+  body.selecting #view .row .ck:not(.off) { display: block; flex: none; }
+}
 .row:hover { background: rgba(255,255,255,.055); }
 .row.sel { background: rgba(255,255,255,.1); }
 .row .no {
@@ -557,6 +584,20 @@ body.no-bar #playerbar { display: none; }
 .q-row b { display: block; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .q-row span { display: block; color: var(--text-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .q-row.now b { color: var(--accent); }
+/* 지금 곡: 대기열 가운데서 그 자리를 강조 (들은 곡도 목록에 남는다) */
+.queue .q-row.now, .queue .q-row.now:hover { background: color-mix(in srgb, var(--accent) 17%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.q-row.now span { color: var(--text); }
+.q-grip.off { visibility: hidden; pointer-events: none; }
+.q-row.played { opacity: .5; transition: opacity .15s; } /* 지나간 곡: 살짝 흐리게 (가리키면 또렷하게) */
+.q-row.played:hover { opacity: .85; }
+.q-eq { flex: none; display: flex; align-items: flex-end; gap: 2px; width: 28px; height: 16px; justify-content: center; }
+.q-eq i { width: 3px; height: 100%; border-radius: 1px; background: var(--accent); transform-origin: bottom; animation: q-eq .9s ease-in-out infinite alternate; }
+.q-eq i:nth-child(2) { animation-delay: -.3s; }
+.q-eq i:nth-child(3) { animation-delay: -.6s; }
+.q-row.paused .q-eq i { animation: none; transform: scaleY(.35); }
+@keyframes q-eq { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .q-eq i { animation: none; transform: scaleY(.6); } }
+.q-more { padding: 6px 8px; font-size: 12px; }
 .q-row .icon-btn { visibility: hidden; width: 28px; height: 28px; }
 .q-row { position: relative; }
 .q-grip { flex: none; display: grid; place-items: center; width: 30px; height: 34px; color: var(--text-3); cursor: grab; touch-action: none; }
