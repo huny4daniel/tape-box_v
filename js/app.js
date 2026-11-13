@@ -175,7 +175,7 @@
   // 뒤로 버튼: 사이드바(폰은 아래 탭) 메뉴로 여는 첫 화면들이 기준점. 그 안에서 들어간 길을 되짚어 결국 그 화면으로,
   // 그 화면에서 한 번 더 누르면 홈으로. 홈에는 뒤로 버튼이 없다. 주소로 바로 들어왔으면 그 화면이 속한 첫 화면으로
   const NAV_ROOTS = ["home", "search", "collection", "playlists", "albums", "artists", "library", "settings"];
-  const NAV_PARENT = { album: "/albums", artist: "/artists", "artist-albums": "/artists", playlist: "/playlists", liked: "/playlists", box: "/playlists", track: "/collection", year: "/", genre: "/search" };
+  const NAV_PARENT = { album: "/albums", artist: "/artists", "artist-albums": "/artists", playlist: "/playlists", liked: "/playlists", box: "/playlists", track: "/collection", year: "/", genre: "/search", "recent-tapes": "/" };
   let navStack = [], navBack = false;
   function trackNav(r) {
     if (NAV_ROOTS.includes(r.name)) { navStack = [r.hash]; navBack = false; return; }
@@ -210,7 +210,7 @@
     $("#topbar-extra").innerHTML = fn === pages.home ? '<a class="round-btn" href="#/settings" title="설정 · 연결"><i class="ic ic-gear"></i></a>' : "";
     for (const k in LZ) delete LZ[k];
     view.innerHTML = fn(r.arg) || "";
-    const navName = { album: "albums", artist: "artists", "artist-albums": "artists", playlist: "playlists", liked: "playlists", box: "playlists" }[r.name] || r.name;
+    const navName = { "recent-tapes": "home", album: "albums", artist: "artists", "artist-albums": "artists", playlist: "playlists", liked: "playlists", box: "playlists" }[r.name] || r.name;
     $$("[data-nav]").forEach((a) => a.classList.toggle("on", a.dataset.nav === r.name || (a.closest("#sidebar") && a.dataset.nav === navName) || (r.name === "home" && a.dataset.nav === "home") || (["albums", "artists", "playlist", "playlists", "liked", "box"].includes(r.name) && a.dataset.nav === "library" )));
     markSideOn();
     if (pages[r.name] && pages[r.name].after) pages[r.name].after(r.arg);
@@ -309,7 +309,7 @@
 
     return `<div class="page">
       ${homeNowHtml()}
-      ${tapes.length ? section("최근 들은 테이프", null, `<div class="tape-row" data-hscroll>${tapes.map(recentTapeItem).join("")}</div>`, "#/playlists") : ""}
+      ${tapes.length ? section("최근 들은 테이프", null, `<div class="tape-row" data-hscroll>${tapes.map(recentTapeItem).join("")}</div>`, "#/recent-tapes") : ""}
 
       ${recent.length ? section("최근 들은 곡", null, `<div class="shelf scroll" data-hscroll>${recent.map((t) => trackCard(t, U.ago(t.lastPlayed) + " · " + t.artist)).join("")}</div>`, "#/collection/sort-recent") : ""}
       ${section("새로 들인 곡", "가장 최근에 컬렉션에 들어온 노래들", `<div class="shelf scroll" data-hscroll>${fresh.map((t) => trackCard(t)).join("")}</div>`, "#/collection/sort-new")}
@@ -990,6 +990,15 @@
       ${section("나의 테이프", `${U.num(tapes.length)}개`, `<div class="tape-row" data-hscroll>${tapes.slice(0, ROW_MAX).map(tapeItem).join("")}<button class="tape-new" data-act="new-playlist"><i class="ic ic-plus"></i><span>새 테이프 만들기</span></button></div>`, "#/playlists")}
       ${section("앨범", `${U.num(albums.length)}장`, `<div class="lp-row" data-hscroll>${albums.slice(0, ROW_MAX).map((a) => lpAlbum(a)).join("")}</div>`, "#/albums")}
       ${section("아티스트", `${U.num(artists.length)}명`, `<div class="shelf scroll artist-row" data-hscroll>${artists.slice(0, ROW_MAX).map(artistCard).join("")}</div>`, "#/artists")}
+    </div>`;
+  };
+  // 최근 들은 테이프 전용 화면 (홈 「최근 들은 테이프」의 모두 보기): 들은 테이프만, 가장 최근이 맨 앞. 누르면 바로 재생
+  pages["recent-tapes"] = () => {
+    $("#topbar-title").textContent = "최근 들은 테이프";
+    const T = recentTapes(500);
+    return `<div class="page">
+      <div class="section-head" style="margin-top:8px"><div><h2 style="font-size:30px">최근 들은 테이프</h2><p>${T.length ? `${T.length}개 · 가장 최근에 들은 테이프부터` : "아직 들은 테이프가 없어요"}</p></div></div>
+      ${T.length ? `<div class="tape-grid recent-grid">${T.map(recentTapeItem).join("")}</div>` : `<div class="empty"><b>아직 들은 테이프가 없어요</b>테이프를 10초쯤 들으면 여기에 쌓여요.</div>`}
     </div>`;
   };
   // 나의 테이프 (재생목록 모음)
@@ -2297,9 +2306,9 @@
     const card = e.target.closest('.card[data-card="track"]');
     if (card && isMobile()) { /* 폰에서는 카드도 링크로 동작 */ return; }
     // 홈(대시보드)의 테이프 줄: 누르면 바로 재생 (꾹 누르면 상세 — 아래 onContext)
-    const sysEl = e.target.closest(".tape-row [data-sys]");
+    const sysEl = e.target.closest(".tape-row [data-sys], .recent-grid [data-sys]");
     if (sysEl) { playSysTape(sysEl.dataset.sys); return; }
-    const rowTape = e.target.closest(".tape-row .tape[data-pl]");
+    const rowTape = e.target.closest(".tape-row .tape[data-pl], .recent-grid .tape[data-pl]");
     if (rowTape) { playTape(rowTape.dataset.pl); return; }
     // 상자는 그 상자 안으로
     const bxEl = e.target.closest(".tbox[data-box]");

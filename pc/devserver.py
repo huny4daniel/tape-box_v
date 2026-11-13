@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -53,9 +54,9 @@ def find_adb():
 ADB = find_adb()
 
 
-def adb(*args):
+def adb(*args, timeout=120):
     try:
-        r = subprocess.run([ADB, *SERIAL, *args], capture_output=True, text=True, timeout=120)
+        r = subprocess.run([ADB, *SERIAL, *args], capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
         return 1, str(e)
@@ -88,13 +89,47 @@ def build_and_install():
     gradlew = os.path.join(ANDROID, "gradlew.bat" if os.name == "nt" else "gradlew")
     if subprocess.run([gradlew, "assembleDebug", "-q"], cwd=ANDROID, env=env).returncode:
         return "폰 앱 빌드에 실패했어요. 위 오류를 확인해 주세요."
-    print("[dev] 폰에 설치 중…")
-    code, out = adb("install", "-r", os.path.join(ANDROID, "app", "build", "outputs", "apk", "debug", "app-debug.apk"))
-    if code:
+    print("[dev] 폰에 설치 중… (무선 디버깅이면 조금 걸려요)")
+    apk = os.path.join(ANDROID, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+    code, out = adb("install", "-r", apk, timeout=600)
+    if code and ("INSTALL_FAILED_UPDATE_INCOMPATIBLE" in out or "signatures do not match" in out):
+        # 다른 PC에서 만든 디버그 앱이 깔려 있으면 서명이 달라 덮어쓸 수 없다 → 지우고 다시
+        print("[dev] 서명이 다른 디버그 앱이 있어 지우고 다시 설치해요 (디버그 앱의 기록은 지워져요)")
+        adb("uninstall", PKG, timeout=120)
+        code, out = adb("install", apk, timeout=600)
+    if code or not app_installed():
         return "폰에 설치하지 못했어요: " + out.strip()[-300:]
+    print("[dev] 설치했어요")
     with open(STAMP, "w") as f:
         f.write(str(stamp))
     return None
+
+
+def app_installed():
+    return PKG in adb("shell", "pm", "list", "packages", PKG)[1]
+
+
+def start_app():
+    adb("reverse", f"tcp:{DEV_PORT}", f"tcp:{DEV_PORT}")
+    adb("forward", f"tcp:{PHONE_PORT}", f"tcp:{PHONE_PORT}")
+    adb("shell", "am", "force-stop", PKG)
+    adb("shell", "am", "start", "-n", f"{PKG}/io.github.huny4daniel.musiccollection.MainActivity")
+
+
+def watch_install():
+    """켜 두는 동안 폰에서 디버그 앱이 지워지면 다시 빌드해 깔고 띄운다 (15초마다 확인)"""
+    while True:
+        time.sleep(15)
+        try:
+            code, out = adb("devices")
+            if code or not any(l.endswith("	device") for l in out.splitlines()) or app_installed():
+                continue
+            print("[dev] 폰에 디버그 앱이 없어 다시 설치해요")
+            err = build_and_install()
+            if err: print("[dev] ※ " + err); continue
+            start_app(); print("[dev] 디버그 앱을 다시 띄웠어요")
+        except Exception as e:
+            print("[dev] ※ 설치 확인 중 오류:", e)
 
 
 def setup_phone():
@@ -105,15 +140,12 @@ def setup_phone():
         return "폰이 adb로 연결돼 있지 않아요. USB 디버깅을 켜고 연결한 뒤 다시 실행해 주세요."
     SERIAL[:] = ["-s", devs[0]]  # 같은 폰이 무선 주소와 mDNS 이름으로 두 번 잡혀도 하나로
     # 앱이 없거나 Java 등 폰 앱 소스가 마지막 설치 이후 바뀌었으면 빌드해서 설치
-    if PKG not in adb("shell", "pm", "list", "packages", PKG)[1] or source_stamp() > installed_stamp():
+    if not app_installed() or source_stamp() > installed_stamp():
         err = build_and_install()
         if err:
             return err
-    adb("reverse", f"tcp:{DEV_PORT}", f"tcp:{DEV_PORT}")
-    adb("forward", f"tcp:{PHONE_PORT}", f"tcp:{PHONE_PORT}")
     # 이미 떠 있던 앱은 APK 사본 화면을 쓰고 있으니 다시 띄워 이 서버의 화면을 읽게 한다
-    adb("shell", "am", "force-stop", PKG)
-    adb("shell", "am", "start", "-n", f"{PKG}/io.github.huny4daniel.musiccollection.MainActivity")
+    start_app()
     for _ in range(20):
         try:
             c = http.client.HTTPConnection("127.0.0.1", PHONE_PORT, timeout=2)
@@ -238,6 +270,7 @@ def main():
         print("[dev] ※ " + msg)
     else:
         print("[dev] 폰 연결됨 — 폰 앱도 이 서버의 화면 파일을 쓴다")
+    threading.Thread(target=watch_install, daemon=True).start()
     url = f"http://localhost:{DEV_PORT}/"
     print(f"[dev] PC 화면: {url}  (파일을 저장하면 양쪽이 새로고침, 끝내려면 이 창을 닫기)")
     webbrowser.open(url)

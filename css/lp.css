@@ -3,12 +3,12 @@
 
 .lp-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
-  column-gap: 26px; row-gap: 30px; padding: 6px 12px 16px 4px;
+  --lp-gap: 26px; column-gap: var(--lp-gap); row-gap: 30px; padding: 6px 12px 16px 4px;
 }
 .lp { position: relative; display: block; min-width: 0; cursor: pointer; }
 /* 라이브러리의 앨범 가로 줄 */
 .lp-row {
-  display: grid; grid-auto-flow: column; grid-auto-columns: 150px; column-gap: 26px;
+  --lp-gap: 26px; display: grid; grid-auto-flow: column; grid-auto-columns: 150px; column-gap: var(--lp-gap);
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity;
   margin: 0 -16px; padding: 6px 16px 18px; scroll-padding: 0 16px;
 }
@@ -18,9 +18,10 @@
 @media (hover: hover) and (pointer: fine) { .lp-row { scroll-snap-type: none; } }
 
 .lp-stage { position: relative; width: 86%; aspect-ratio: 1; }
-/* 선반: 옆 칸과 이어져 한 줄의 나무 선반처럼 */
+/* 선반: 옆 칸과 이어져 한 줄의 나무 선반처럼. 앨범 사이 간격(--lp-gap)의 절반보다 조금 더 양옆으로 넓혀 옆 칸 선반과 겹치게 한다
+   (재킷 무대는 칸 폭의 86%라 오른쪽은 남는 14%(=무대의 16.3%)만큼 더) */
 .lp-stage::after {
-  content: ""; position: absolute; z-index: 0; left: -16px; right: calc(-16.3% - 16px); bottom: -9px; height: 9px;
+  content: ""; position: absolute; z-index: 0; left: calc(var(--lp-gap, 26px) / -2 - 2px); right: calc(-16.3% - var(--lp-gap, 26px) / 2 - 2px); bottom: -9px; height: 9px;
   background: linear-gradient(#7a5a3c, #5b412a 45%, #3a2919);
   box-shadow: 0 6px 10px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.15);
 }
@@ -92,8 +93,7 @@
 }
 
 @media (max-width: 820px) {
-  .lp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; row-gap: 26px; padding: 6px 4px 16px; }
-  .lp-stage::after { left: -10px; right: calc(-16.3% - 10px); }
+  .lp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); --lp-gap: 18px; row-gap: 26px; padding: 6px 4px 16px; }
   .lp:hover .lp-disc { transform: none; }
   .lp.now .lp-disc { transform: translateX(30%); }
   .hero-tape { width: min(86%, 320px); align-self: center; order: -1; margin-left: 0; margin-right: 0; } /* 폰: 가운데 */

@@ -268,7 +268,7 @@ class Api:
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     api = Api()
-    window = webview.create_window(APP_TITLE + (" (dev)" if DEV else ""), html=STATUS_HTML, width=1280, height=820,
+    window = webview.create_window(APP_TITLE, html=STATUS_HTML, width=1280, height=820,
                                    min_size=(720, 520), background_color="#0d0c0b", js_api=api)
     api._window = window
     finder = Finder(window)
