@@ -28,7 +28,7 @@ public class Db extends SQLiteOpenHelper {
         public String memo;
     }
 
-    public Db(Context c) { super(c, "collection.db", null, 5); }
+    public Db(Context c) { super(c, "collection.db", null, 6); }
 
     @Override public void onConfigure(SQLiteDatabase db) { db.enableWriteAheadLogging(); }
 
@@ -42,7 +42,7 @@ public class Db extends SQLiteOpenHelper {
                 " first_played INTEGER DEFAULT 0, last_played INTEGER DEFAULT 0, listened_ms INTEGER DEFAULT 0," +
                 " fav INTEGER DEFAULT 0, fav_at INTEGER DEFAULT 0, memo TEXT)");
         db.execSQL("CREATE UNIQUE INDEX meta_no ON meta(no)");
-        db.execSQL("CREATE TABLE playlists (id TEXT PRIMARY KEY, name TEXT, descr TEXT, created INTEGER, updated INTEGER, items TEXT)");
+        db.execSQL("CREATE TABLE playlists (id TEXT PRIMARY KEY, name TEXT, descr TEXT, created INTEGER, updated INTEGER, items TEXT, cover TEXT)");
         db.execSQL("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)");
         createLyrics(db);
         createRejected(db);
@@ -56,6 +56,15 @@ public class Db extends SQLiteOpenHelper {
         if (o < 3) createRejected(db);
         if (o < 4) createBoxes(db);
         if (o < 5) createMonthPlays(db);
+        if (o < 6) addColumn(db, "playlists", "cover", "TEXT"); // 테이프 꾸미기 (대표 배경)
+    }
+
+    /** 칸이 없을 때만 더한다 (디버그 빌드에서 버전을 내렸다 다시 올려도 안전하게) */
+    private static void addColumn(SQLiteDatabase db, String table, String col, String type) {
+        try (Cursor c = db.rawQuery("PRAGMA table_info(" + table + ")", null)) {
+            while (c.moveToNext()) if (col.equals(c.getString(1))) return;
+        }
+        db.execSQL("ALTER TABLE " + table + " ADD COLUMN " + col + " " + type);
     }
 
     /** 히스토리 상자: 달마다(yyyy-MM) 곡별로 「한 번 들었다」로 센 횟수. 그 달에 가장 많이 들은 30곡을 만든다 */
@@ -174,19 +183,20 @@ public class Db extends SQLiteOpenHelper {
         o.put("id", c.getString(0)); o.put("name", c.getString(1)); o.put("desc", c.getString(2) == null ? "" : c.getString(2));
         o.put("created", c.getLong(3)); o.put("updated", c.getLong(4));
         o.put("items", new JSONArray(c.getString(5) == null ? "[]" : c.getString(5)));
+        o.put("cover", c.getString(6) == null ? "" : c.getString(6));
         return o;
     }
 
     public synchronized JSONArray playlists() throws JSONException {
         JSONArray a = new JSONArray();
-        try (Cursor c = getReadableDatabase().rawQuery("SELECT id,name,descr,created,updated,items FROM playlists ORDER BY created", null)) {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT id,name,descr,created,updated,items,cover FROM playlists ORDER BY created", null)) {
             while (c.moveToNext()) a.put(plRow(c));
         }
         return a;
     }
 
     public synchronized JSONObject playlist(String id) throws JSONException {
-        try (Cursor c = getReadableDatabase().rawQuery("SELECT id,name,descr,created,updated,items FROM playlists WHERE id = ?", new String[]{id})) {
+        try (Cursor c = getReadableDatabase().rawQuery("SELECT id,name,descr,created,updated,items,cover FROM playlists WHERE id = ?", new String[]{id})) {
             return c.moveToFirst() ? plRow(c) : null;
         }
     }
@@ -206,6 +216,7 @@ public class Db extends SQLiteOpenHelper {
         if (patch.has("name")) v.put("name", patch.getString("name"));
         if (patch.has("desc")) v.put("descr", patch.getString("desc"));
         if (patch.has("items")) v.put("items", patch.getJSONArray("items").toString());
+        if (patch.has("cover")) v.put("cover", patch.getString("cover"));
         v.put("updated", System.currentTimeMillis());
         getWritableDatabase().update("playlists", v, "id = ?", new String[]{id});
         return playlist(id);
@@ -244,6 +255,7 @@ public class Db extends SQLiteOpenHelper {
                 v.put("id", p.getString("id")); v.put("name", p.optString("name", "")); v.put("descr", p.optString("desc", ""));
                 v.put("created", p.optLong("created", 0)); v.put("updated", p.optLong("updated", 0));
                 v.put("items", p.optJSONArray("items") == null ? "[]" : p.getJSONArray("items").toString());
+                v.put("cover", p.optString("cover", ""));
                 db.insertWithOnConflict("playlists", null, v, SQLiteDatabase.CONFLICT_REPLACE);
             }
             if (boxes != null) { // 상자는 테이프 id로 묶여 있고, 테이프 id를 그대로 가져왔으니 그대로 맞는다

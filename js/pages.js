@@ -96,7 +96,12 @@ function cassette(pl, t, o) {
   o = o || {};
   const hsh = U.hash(String(pl.id) + pl.name);
   const tilt = ((hsh >> 4) % 7 - 3) * 0.5; // 마스킹 테이프를 손으로 붙인 듯 살짝 비뚤게
-  const url = t && t.albumKey ? API.artUrl(t.albumKey, o.big ? 640 : 300) : "";
+  // 대표 배경(테이프 꾸미기): 듣고 있는 중이 아닐 때만. 듣는 중이면 지금 곡의 앨범아트
+  const live = !o.decor && (o.now || (t && t.id === P.currentId && isPlayingPl(pl)));
+  const cv = live ? null : coverOf(pl);
+  const skinT = cv && cv.track ? cv.track : t;
+  const url = !(cv && cv.color) && skinT && skinT.albumKey ? API.artUrl(skinT.albumKey, o.big ? 640 : 300) : "";
+  const skinStyle = cv && cv.color ? `--ph:${cv.color}` : U.phStyle(skinT ? skinT.albumKey + skinT.album : pl.name);
   const cls = `tape${o.big ? " big" : ""}${o.now ? " now" + (P.playing ? "" : " paused") : ""}${t ? "" : " blank"}`;
   // 띠 앞: 그 곡의 순서(#3). 띠 끝: 재생 화면이면 진행 시간, 진열된 테이프면 재생목록 전체 길이
   const order = o.order || (t ? pl.items.indexOf(t.id) + 1 : 0);
@@ -105,7 +110,7 @@ function cassette(pl, t, o) {
   return `<div class="${cls}" ${o.attrs || ""} style="--tilt:${tilt}deg;--h:${hsh % 360}">
     <div class="tape-shell"></div>
     <div class="tape-label">
-      <div class="tape-skin" style="${U.phStyle(t ? t.albumKey + t.album : pl.name)}">${url ? `<img loading="lazy" decoding="async" alt="" src="${esc(url)}" onerror="this.remove()">` : ""}</div>
+      <div class="tape-skin" style="${skinStyle}">${url ? `<img loading="lazy" decoding="async" alt="" src="${esc(url)}" onerror="this.remove()">` : ""}</div>
       <div class="mtape${o.editName ? " editing" : ""}">${o.editName
         ? `<input class="mtape-input" name="name" form="pl-form" maxlength="60" value="${esc(pl.name)}" placeholder="테이프 제목" autocomplete="off" spellcheck="false" required>`
         : `<span>${esc(pl.name)}</span>`}</div>
@@ -115,6 +120,13 @@ function cassette(pl, t, o) {
     </div>
     <div class="tape-foot"><i></i><i></i><i></i><i></i></div>
   </div>`;
+}
+// 테이프 꾸미기로 고른 대표 배경: pl.cover = "t:<곡 id>" (그 곡의 앨범아트) | "c:#rrggbb" (색) | "" (최근 들은 곡 따라)
+function coverOf(pl) {
+  const v = pl && typeof pl.cover === "string" ? pl.cover : "";
+  if (v.startsWith("t:")) { const t = L.byId.get(v.slice(2)); return t && pl.items.includes(t.id) ? { track: t } : null; } // 테이프에서 뺀 곡이면 원래대로
+  if (/^c:#[0-9a-f]{6}$/i.test(v)) return { color: v.slice(2) };
+  return null;
 }
 // 테이프를 마지막으로 튼 때 (폰 DB에 두어 폰·PC가 같이 본다)
 const tapePlayedMap = () => Prefs.get("tapePlayed", {});

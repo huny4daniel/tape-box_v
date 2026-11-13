@@ -49,7 +49,7 @@ document.addEventListener("click", (e) => {
       case "shuffle": toast(P.toggleShuffle() ? "셔플을 켰어요" : "셔플을 껐어요"); return;
       case "repeat": { const m = P.cycleRepeat(); toast({ off: "반복을 껐어요", all: "전체 반복", one: "한 곡 반복" }[m]); renderBar(); renderFull(); return; }
       case "fav": e.preventDefault(); toggleFav(id); return;
-      case "more": { e.preventDefault(); e.stopPropagation(); const r = a.getBoundingClientRect(); const lst = a.closest("[data-list]"); trackMenu(id, r.left - 200, r.bottom + 4, { list: lst ? lst.dataset.list : "", i: rowEl ? +rowEl.dataset.i : -1, sel: !!(rowEl && rowEl.closest("#view") && !rowEl.closest(".add-finder")) }); return; }
+      case "more": { e.preventDefault(); e.stopPropagation(); const r = a.getBoundingClientRect(); const lst = a.closest("[data-list]"); trackMenu(id, r.left - 200, r.bottom + 4, { list: lst ? lst.dataset.list : "", i: rowEl ? +rowEl.dataset.i : -1, sel: !!(rowEl && rowEl.closest("#view") && !rowEl.closest(".add-finder")), np: !!a.closest(".np-top") }); return; }
       case "open-full": openFull(); return;
       case "mini-queue": // 재생 화면을 열고 재생목록을 아래에서 끌어올린다 (폰)
         npSide = "queue"; if (fp.hidden) openFull(); else renderNpSide();
@@ -92,7 +92,7 @@ document.addEventListener("click", (e) => {
       }
       case "sel-next": { const ids = SEL.ids.slice(); if (!ids.length) return; selEnd(); P.playNext(ids); toast(`${ids.length}곡을 다음에 재생해요`); return; }
       case "sel-addpl": { const ids = SEL.ids.slice(); if (!ids.length) return; selEnd(); addToPlaylistModal(ids); return; }
-      case "pl-more": { const r = a.getBoundingClientRect(); const p = curPlaylist(), bx = p && boxOf(p.id); openMenu(r.right - 240, r.bottom + 6, `<button data-m="pl-rename"><i class="ic ic-pen"></i>이름·설명 고치기</button><button data-m="pl-queue"><i class="ic ic-queue"></i>대기열에 추가</button>${p ? `<button data-m="tape-box" data-pl="${esc(p.id)}"><i class="ic ic-box"></i>${bx ? "다른 상자로 옮기기…" : "상자에 넣기…"}</button>` : ""}${bx ? `<button data-m="tape-unbox" data-pl="${esc(p.id)}"><i class="ic ic-x"></i>상자에서 꺼내기</button>` : ""}<hr><button data-m="pl-delete" class="danger"><i class="ic ic-trash"></i>테이프 삭제하기</button>`); return; }
+      case "pl-more": { const r = a.getBoundingClientRect(); const p = curPlaylist(), bx = p && boxOf(p.id); openMenu(r.right - 240, r.bottom + 6, `<button data-m="pl-rename"><i class="ic ic-pen"></i>이름·설명 고치기</button><button data-m="pl-decor"><i class="ic ic-palette"></i>테이프 꾸미기</button><button data-m="pl-queue"><i class="ic ic-queue"></i>대기열에 추가</button>${p ? `<button data-m="tape-box" data-pl="${esc(p.id)}"><i class="ic ic-box"></i>${bx ? "다른 상자로 옮기기…" : "상자에 넣기…"}</button>` : ""}${bx ? `<button data-m="tape-unbox" data-pl="${esc(p.id)}"><i class="ic ic-x"></i>상자에서 꺼내기</button>` : ""}<hr><button data-m="pl-delete" class="danger"><i class="ic ic-trash"></i>테이프 삭제하기</button>`); return; }
       case "box-more": { const r = a.getBoundingClientRect(); const cb = curBox();
         if (cb && cb.system) { openMenu(r.right - 240, r.bottom + 6, `<button data-m="box-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="box-hide" data-bx="${esc(cb.id)}"><i class="ic ic-x"></i>상자 숨기기</button>`); return; }
         openMenu(r.right - 240, r.bottom + 6, `<button data-m="box-rename"><i class="ic ic-pen"></i>상자 이름 고치기</button><button data-m="box-queue"><i class="ic ic-queue"></i>대기열에 추가</button><hr><button data-m="box-delete" class="danger"><i class="ic ic-trash"></i>상자 삭제하기</button>`); return; }

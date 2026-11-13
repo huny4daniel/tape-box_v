@@ -15,6 +15,7 @@ menu.addEventListener("click", (e) => { if (e.target === menu) closeMenu(); });
 function trackMenu(id, x, y, ctx) {
   const t = L.byId.get(id); if (!t) return;
   const inPl = ctx && ctx.list === "playlist" && !isSysTape(route().arg); // 시스템·히스토리 테이프는 곡을 뺄 수 없다
+  const tapeGo = ctx && ctx.np ? nowTapeHref() : null; // 재생 화면: 지금 듣는 테이프로
   openMenu(x, y, `
     <div class="mh">${art(t, 100)}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}</span></div></div>
     <button data-m="next" data-id="${esc(id)}"><i class="ic ic-queue"></i>다음에 재생</button>
@@ -23,6 +24,7 @@ function trackMenu(id, x, y, ctx) {
     <button data-m="fav" data-id="${esc(id)}"><i class="ic ${t.fav ? "ic-heart-fill" : "ic-heart"}"></i>${t.fav ? "아끼는 곡에서 빼기" : "아끼는 곡으로"}</button>
     ${inPl ? `<button data-m="plremove" data-id="${esc(id)}" data-i="${ctx.i}" class="danger"><i class="ic ic-x"></i>이 테이프에서 빼기</button>` : ""}
     <hr>
+    ${tapeGo ? `<button data-m="go" data-href="${tapeGo}"><i class="ic ic-tape"></i>테이프 상세보기</button>` : ""}
     <button data-m="go" data-href="#/track/${encodeURIComponent(id)}"><i class="ic ic-shelf"></i>곡 상세보기</button>
     ${t.album ? `<button data-m="go" data-href="${albumHref(t)}"><i class="ic ic-stack"></i>앨범으로 이동</button>` : ""}
     ${t._artists.map((a) => `<button data-m="go" data-href="#/artist/${encodeURIComponent(a)}"><i class="ic ic-home"></i>${esc(a)}</button>`).join("")}`);
@@ -38,6 +40,7 @@ menu.addEventListener("click", (e) => {
     case "plremove": { const p = curPlaylist(); if (p) { const items = p.items.slice(); items.splice(+b.dataset.i, 1); savePlaylist(p, { items }); } break; }
     case "go": closeFull(); location.hash = b.dataset.href; break;
     case "pl-rename": playlistModal(curPlaylist()); break;
+    case "pl-decor": decorModal(curPlaylist()); break;
     case "pl-delete": deletePlaylist(curPlaylist()); break;
     case "pl-queue": { const p = curPlaylist(); if (p) { P.addToQueue(p.items.filter((i) => L.byId.has(i))); toast("대기열에 추가했어요"); } break; }
     case "tape-open": location.hash = tapeHref({ id: b.dataset.pl }); break;
@@ -55,33 +58,43 @@ menu.addEventListener("click", (e) => {
 });
 const curPlaylist = () => { const r = route(); return r.name === "playlist" ? L.playlists.find((p) => p.id === r.arg) : null; };
 const curBox = () => { const r = route(); return r.name === "box" ? allBoxes().find((b) => b.id === r.arg) : null; };
-// 테이프 메뉴 (꾹 누르기·오른쪽 클릭): 열기, 상자에 넣기·옮기기·꺼내기
+// 테이프 메뉴 (꾹 누르기·오른쪽 클릭): 상세보기, 상자에 넣기·옮기기·꺼내기
 function tapeMenu(plId, x, y) {
   const pl = tapeById(plId); if (!pl) return;
   const bx = boxOf(plId);
   if (isSysTape(plId)) { // 시스템·히스토리 테이프는 상자를 옮길 수 없다
     openMenu(x, y, `<div class="mh"><div><b>${esc(pl.name)}</b><span>${bx ? `「${esc(bx.name)}」 안` : "숨긴 상자"} · ${pl.items.length}곡</span></div></div>
       <button data-m="tape-play" data-pl="${esc(plId)}"><i class="ic ic-play"></i>재생하기</button>
-      <button data-m="tape-open" data-pl="${esc(plId)}"><i class="ic ic-tape"></i>테이프 열기</button>`);
+      <button data-m="tape-open" data-pl="${esc(plId)}"><i class="ic ic-tape"></i>테이프 상세보기</button>`);
     return;
   }
   openMenu(x, y, `<div class="mh"><div><b>${esc(pl.name)}</b><span>${bx ? `「${esc(bx.name)}」 상자 안` : "상자 밖"} · ${pl.items.length}곡</span></div></div>
     <button data-m="tape-play" data-pl="${esc(plId)}"><i class="ic ic-play"></i>재생하기</button>
-    <button data-m="tape-open" data-pl="${esc(plId)}"><i class="ic ic-tape"></i>테이프 열기</button>
+    <button data-m="tape-open" data-pl="${esc(plId)}"><i class="ic ic-tape"></i>테이프 상세보기</button>
     <button data-m="tape-box" data-pl="${esc(plId)}"><i class="ic ic-box"></i>${bx ? "다른 상자로 옮기기…" : "상자에 넣기…"}</button>
     ${bx ? `<button data-m="tape-unbox" data-pl="${esc(plId)}"><i class="ic ic-x"></i>상자에서 꺼내기</button>` : ""}`);
 }
 
-// 시스템 테이프(앨범·가수·시대·장르·곡 목록·상자) 메뉴: 재생하기 · 열기
+// 시스템 테이프 키(album:… · artist:… · box:… · year-… · genre-… · collection) → 상세 화면 주소
+function sysTapeHref(k) {
+  const id = k.replace(/^(album|artist|box):/, "");
+  return k.startsWith("album:") ? "#/album/" + encodeURIComponent(id) : k.startsWith("artist:") ? "#/artist/" + encodeURIComponent(id) : k.startsWith("box:") ? "#/box/" + encodeURIComponent(id)
+    : k.startsWith("year-") ? "#/year/" + k.slice(5) : k.startsWith("genre-") ? "#/genre/" + encodeURIComponent(k.slice(6)) : "#/collection";
+}
+// 지금 듣는 테이프의 상세 화면 주소 (선택한 곡·검색 결과처럼 임의로 만든 테이프면 null)
+function nowTapeHref() {
+  const k = tapeKey(nowCtx()); if (!k) return null;
+  if (tapeById(k)) return tapeHref({ id: k });
+  return /^(album:|artist:|box:|year-|genre-|collection$)/.test(k) ? sysTapeHref(k) : null;
+}
+// 시스템 테이프(앨범·가수·시대·장르·곡 목록·상자) 메뉴: 재생하기 · 테이프 상세보기
 function sysTapeMenu(k, x, y) {
   const t = sysTape(k); if (!t) return;
-  const id = k.replace(/^(album|artist|box):/, "");
   if (t.temp) { openMenu(x, y, `<div class="mh"><div><b>${esc(t.pl.name)}</b><span>${U.num(t.pl.items.length)}곡 · 이번에만 있는 테이프</span></div></div><button data-m="sys-play" data-k="${esc(k)}"><i class="ic ic-play"></i>재생하기</button>`); return; }
-  const href = k.startsWith("album:") ? "#/album/" + encodeURIComponent(id) : k.startsWith("artist:") ? "#/artist/" + encodeURIComponent(id) : k.startsWith("box:") ? "#/box/" + encodeURIComponent(id)
-    : k.startsWith("year-") ? "#/year/" + k.slice(5) : k.startsWith("genre-") ? "#/genre/" + encodeURIComponent(k.slice(6)) : "#/collection";
+  const href = sysTapeHref(k);
   openMenu(x, y, `<div class="mh"><div><b>${esc(t.pl.name)}</b><span>${U.num(t.pl.items.length)}곡</span></div></div>
     <button data-m="sys-play" data-k="${esc(k)}"><i class="ic ic-play"></i>재생하기</button>
-    <button data-m="go" data-href="${href}"><i class="ic ic-tape"></i>열기</button>`);
+    <button data-m="go" data-href="${href}"><i class="ic ic-tape"></i>테이프 상세보기</button>`);
 }
 // 앨범 메뉴: 재생하기 · 셔플 재생 · 대기열에 추가 · 앨범 열기 · 아티스트
 function albumMenu(key, x, y) {
@@ -129,6 +142,41 @@ function playlistModal(p, thenAdd, intoBox) {
       closeFull(); location.hash = "#/playlist/" + encodeURIComponent(np.id); // 어디서 만들든 새 테이프 화면으로 바로
     } catch (err) { toast("만들지 못했어요: " + err.message); }
   });
+}
+// 테이프 꾸미기: 목록·선반에서 보일 대표 배경을 테이프 속 곡의 앨범아트나 색 중에서 고른다
+const DECOR_COLORS = ["#6b5a45", "#8c3b2e", "#b5652b", "#c99a2e", "#5f7a3a", "#2f6b5a", "#2e5a7a", "#3b4a8c", "#6a3f80", "#8c3b62", "#3a3a3a", "#d9cdb4"];
+function decorModal(p) {
+  if (!p) return;
+  let sel = coverOf(p) ? p.cover : "";
+  const seen = new Set(), albums = []; // 같은 앨범은 한 번만 (앨범아트가 같으니)
+  for (const id of p.items) { const t = L.byId.get(id); if (t && !seen.has(t.albumKey)) { seen.add(t.albumKey); albums.push(t); } }
+  const custom = /^c:#/.test(sel) && !DECOR_COLORS.includes(sel.slice(2).toLowerCase()) ? sel.slice(2) : "";
+  openModal(`<h3>테이프 꾸미기</h3>
+    <p class="dimmer" style="margin:-8px 0 14px;font-size:13px">목록이나 선반에서 보일 테이프 배경을 골라 주세요. 듣고 있을 땐 지금 곡의 앨범아트가 보여요</p>
+    <div class="tape-edit-wrap decor-preview"></div>
+    <div class="decor-sec"><h4>배경색</h4><div class="decor-colors">
+      <button type="button" class="decor-auto" data-cv="" title="최근 들은 곡의 앨범아트">자동</button>
+      ${DECOR_COLORS.map((c) => `<button type="button" class="decor-sw" data-cv="c:${c}" style="background:${c}" title="${c}"></button>`).join("")}
+      <label class="decor-sw decor-custom${custom ? "" : " empty"}" title="직접 고르기" style="${custom ? `background:${custom}` : ""}"><input type="color" value="${custom || "#6b5a45"}"><i class="ic ic-plus"></i></label>
+    </div></div>
+    <div class="decor-sec arts"><h4>앨범아트${albums.length ? ` <span class="dimmer">· ${albums.length}장</span>` : ""}</h4>
+      ${albums.length ? `<div class="decor-arts">${albums.map((t) => `<button type="button" class="decor-art" data-cv="t:${esc(t.id)}" title="${esc(t.album || t.title)} · ${esc(t.artist)}">${art(t, 160)}<span>${esc(t.album || t.title)}</span></button>`).join("")}</div>`
+        : '<p class="dimmer" style="font-size:13px">테이프에 곡을 담으면 그 곡의 앨범아트를 고를 수 있어요</p>'}</div>
+    <div class="row-btns"><button type="button" class="btn ghost" data-close>취소</button><button type="button" class="btn primary" id="decor-ok">저장</button></div>`, "wide");
+  const box = modal.firstChild, prev = $(".decor-preview", box), picker = $(".decor-custom input", box), cus = $(".decor-custom", box);
+  const draw = () => {
+    prev.innerHTML = cassette(Object.assign({}, p, { cover: sel }), bandTrack(p), { noHeart: true, decor: true });
+    $$("[data-cv]", box).forEach((b) => b.classList.toggle("on", b.dataset.cv === sel));
+    cus.classList.toggle("on", sel.startsWith("c:") && !DECOR_COLORS.includes(sel.slice(2)));
+  };
+  box.addEventListener("click", (e) => { const b = e.target.closest("[data-cv]"); if (!b) return; sel = b.dataset.cv; draw(); });
+  picker.addEventListener("input", () => { sel = "c:" + picker.value.toLowerCase(); cus.style.background = picker.value; cus.classList.remove("empty"); draw(); });
+  $("#decor-ok", box).addEventListener("click", () => {
+    closeModal();
+    if ((coverOf(p) ? p.cover : "") === sel) return;
+    savePlaylist(p, { cover: sel }); toast(sel ? "테이프를 꾸몄어요" : "배경을 자동으로 되돌렸어요");
+  });
+  draw();
 }
 // 테이프 고르기 팝업 위 검색창: 테이프 이름이 맞는 것 먼저, 그다음 담긴 곡의 제목·가수가 맞는 것 (초성도). tail은 검색어가 없을 때만 끝에 붙인다
 // group(pl): 묶음 번호 (0이 먼저). groupLabel[n]: n번 묶음 앞 구분선 글자

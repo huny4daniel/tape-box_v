@@ -16,7 +16,8 @@ const L = { tracks: [], byId: new Map(), albums: new Map(), artists: new Map(), 
 let P = null; // Player
 const lists = {}; // 화면에 그린 목록들: 목록 이름 → 곡 id 배열 (재생 문맥)
 
-const isMobile = () => window.matchMedia("(max-width: 820px)").matches;
+// 폰: 좁은 화면, 또는 가로로 눕힌 폰 (높이가 낮은 터치 화면). CSS의 @media와 같은 기준
+const isMobile = () => window.matchMedia("(max-width: 820px), (orientation: landscape) and (max-height: 500px) and (pointer: coarse)").matches;
 const splitArtists = (s) => String(s || "알 수 없는 아티스트").split(/\s*,\s*/).filter(Boolean);
 
 function indexLibrary(tracks) {
