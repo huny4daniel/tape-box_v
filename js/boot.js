@@ -109,7 +109,7 @@ function showGate() {
       inp.value = inp.value.replace(/\D/g, "").slice(-1);
       if (inp.value && i < 5) ins[i + 1].focus();
       const pin = ins.map((x) => x.value).join("");
-      if (pin.length === 6) API.pair(pin).then(() => { g.hidden = true; boot(); }).catch((e) => { $(".gate-err", g).textContent = e.message === "locked" ? "잠시 뒤에 다시 시도해 주세요" : e.message === "wrong pin" ? "PIN이 맞지 않아요" : "폰에 연결하지 못했어요 (" + e.message + ")"; // PIN 말고 다른 오류는 그대로 보여 준다 ins.forEach((x) => (x.value = "")); ins[0].focus(); });
+      if (pin.length === 6) API.pair(pin).then(() => { g.hidden = true; boot(); }).catch((e) => { $(".gate-err", g).textContent = e.message === "locked" ? "잠시 뒤에 다시 시도해 주세요" : e.message === "wrong pin" ? "PIN이 맞지 않아요" : "폰에 연결하지 못했어요 (" + e.message + ")"; ins.forEach((x) => (x.value = "")); ins[0].focus(); });
     });
     inp.addEventListener("keydown", (e) => { if (e.key === "Backspace" && !inp.value && i > 0) ins[i - 1].focus(); });
     inp.addEventListener("paste", (e) => { const s = (e.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 6); if (s.length) { e.preventDefault(); s.split("").forEach((c, k) => (ins[k].value = c)); ins[Math.min(5, s.length)].dispatchEvent(new Event("input")); } });
